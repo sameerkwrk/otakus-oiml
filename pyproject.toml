@@ -1,0 +1,23 @@
+[project]
+name = "beta"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "bcrypt>=4.1",
+    "fastapi>=0.110",
+    "pydantic>=2.6",
+    "pyjwt>=2.8",
+    "python-multipart>=0.0.9",
+    "qrcode[pil]>=7.4",
+    "reportlab>=4.0",
+    "uvicorn[standard]>=0.29",
+]
+
+[project.scripts]
+beta = "beta:main"
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13.0"]
+build-backend = "uv_build"

@@ -1,0 +1,8 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+reportlab>=4.0
+qrcode[pil]>=7.4
+pyjwt>=2.8
+bcrypt>=4.1
+python-multipart>=0.0.9
