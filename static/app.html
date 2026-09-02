@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OIML R-76 NAWI Digital Certification System</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    .tab-active { border-bottom: 2px solid #3b82f6; color: #60a5fa; font-weight: 600; }
+    .nav-active { border-bottom: 2px solid #3b82f6; color: #3b82f6; font-weight: 600; }
+    .pos-btn.active { background-color: #2563eb; color: #ffffff; border-color: #60a5fa; }
+    .status-pill { display:inline-block; padding:2px 8px; border-radius:9999px; font-size:10px; font-weight:700; letter-spacing:.02em; }
+    .status-DRAFT { background:rgba(148,163,184,.15); color:#cbd5e1; border:1px solid rgba(148,163,184,.3);}
+    .status-APPROVED { background:rgba(16,185,129,.15); color:#34d399; border:1px solid rgba(16,185,129,.3);}
+    .status-REJECTED { background:rgba(244,63,94,.15); color:#fb7185; border:1px solid rgba(244,63,94,.3);}
+    .result-PASS { color:#34d399; font-weight:700; }
+    .result-FAIL { color:#fb7185; font-weight:700; }
+    .result-PENDING { color:#94a3b8; font-weight:700; }
+
+    /* ---- Custom message box (replaces alert/confirm/prompt) ---- */
+    #mbOverlay {
+      position: fixed; inset: 0; z-index: 100;
+      background: rgba(2, 6, 23, 0.75);
+      backdrop-filter: blur(2px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 1rem;
+      opacity: 0; pointer-events: none;
+      transition: opacity .15s ease;
+    }
+    #mbOverlay.mb-open { opacity: 1; pointer-events: auto; }
+    .mb-box {
+      width: 100%; max-width: 22rem;
+      background: #1e293b; /* slate-800 */
+      border: 1px solid #334155; /* slate-700 */
+      border-radius: 0.75rem;
+      box-shadow: 0 20px 25px -5px rgba(0,0,0,.5), 0 8px 10px -6px rgba(0,0,0,.4);
+      transform: scale(.95) translateY(6px);
+      opacity: 0;
+      transition: transform .16s cubic-bezier(.34,1.56,.64,1), opacity .16s ease;
+    }
+    #mbOverlay.mb-open .mb-box { transform: scale(1) translateY(0); opacity: 1; }
+    .mb-icon {
+      width: 2.5rem; height: 2.5rem; border-radius: 9999px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; flex-shrink: 0;
+    }
+    .mb-icon-info    { background: rgba(59,130,246,.15); color: #60a5fa; border: 1px solid rgba(59,130,246,.3); }
+    .mb-icon-success { background: rgba(16,185,129,.15); color: #34d399; border: 1px solid rgba(16,185,129,.3); }
+    .mb-icon-error   { background: rgba(244,63,94,.15);  color: #fb7185; border: 1px solid rgba(244,63,94,.3); }
+    .mb-icon-warn    { background: rgba(245,158,11,.15); color: #fbbf24; border: 1px solid rgba(245,158,11,.3); }
+    .mb-btn { transition: background-color .12s ease, transform .08s ease; }
+    .mb-btn:active { transform: scale(.97); }
+    #mbInput:focus { border-color: #3b82f6; }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col">
+
+  <!-- Login Gate -->
+  <div id="loginOverlay" class="fixed inset-0 bg-slate-950/95 z-50 flex items-center justify-center p-4">
+    <form id="loginForm" onsubmit="doLogin(event)" class="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-sm shadow-xl space-y-4">
+      <div class="flex items-center space-x-3 mb-2">
+        <div class="bg-blue-600 text-white p-2 rounded-lg text-xl font-bold"><i class="fa-solid fa-scale-balanced"></i></div>
+        <div>
+          <h1 class="text-lg font-bold">NAWI Legal Metrology Suite</h1>
+          <p class="text-xs text-slate-400">Sign in to continue</p>
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Username</label>
+        <input type="text" id="login_username" required autocomplete="username" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-400 mb-1">Password</label>
+        <input type="password" id="login_password" required autocomplete="current-password" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+      </div>
+      <p id="loginError" class="text-xs text-rose-400 hidden"></p>
+      <button type="submit" class="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-semibold text-sm transition">Log In</button>
+      <p class="text-[10px] text-slate-500">Testers can register instruments and submit test suites. Approvers can review and approve/reject reports. Accounts are created by an administrator.</p>
+    </form>
+  </div>
+
+  <!-- Header -->
+  <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex flex-wrap justify-between items-center shadow-lg gap-3">
+    <div class="flex items-center space-x-3">
+      <div class="bg-blue-600 text-white p-2 rounded-lg text-xl font-bold">
+        <i class="fa-solid fa-scale-balanced"></i>
+      </div>
+      <div>
+        <h1 class="text-xl font-bold tracking-wide">NAWI Legal Metrology Suite</h1>
+        <p class="text-xs text-slate-400">OIML R-76 Verification & Certification Engine</p>
+      </div>
+    </div>
+    <div class="flex items-center space-x-4 text-xs">
+      <div class="bg-slate-900 border border-slate-700 px-3 py-1.5 rounded-lg flex items-center space-x-2">
+        <span class="text-slate-400">Signed in as:</span>
+        <span id="currentUserLabel" class="text-blue-400 font-semibold">—</span>
+        <span id="currentRoleLabel" class="text-slate-500 border-l border-slate-700 pl-2">—</span>
+        <button onclick="doLogout()" class="text-slate-500 hover:text-rose-400 pl-2 border-l border-slate-700" title="Log out"><i class="fa-solid fa-right-from-bracket"></i></button>
+      </div>
+      <span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-3 py-1 rounded-full font-semibold">
+        <i class="fa-solid fa-server mr-1"></i> API Connected
+      </span>
+    </div>
+  </header>
+
+  <!-- Navigation Bar -->
+  <nav id="topNav" class="bg-slate-800/80 border-b border-slate-700 px-6 py-2 flex space-x-6 text-xs font-medium">
+    <button id="nav-testing" onclick="showPage('testing')" class="tester-only nav-btn pb-1 text-slate-400 hover:text-slate-200 focus:outline-none">
+      <i class="fa-solid fa-vial mr-1.5"></i>Testing & Registration
+    </button>
+    <button id="nav-reports" onclick="showPage('reports')" class="approver-only nav-btn pb-1 text-slate-400 hover:text-slate-200 focus:outline-none">
+      <i class="fa-solid fa-clock-rotate-left mr-1.5"></i>Report History & Approvals
+    </button>
+    <button id="nav-users" onclick="showPage('users')" class="admin-only nav-btn pb-1 text-slate-400 hover:text-slate-200 focus:outline-none">
+      <i class="fa-solid fa-user-shield mr-1.5"></i>Manage Users
+    </button>
+  </nav>
+
+  <!-- Main Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6">
+
+    <!-- PAGE 1: Testing & Registration (Tester only) -->
+    <div id="page-testing" class="page-section hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Step 1: Instrument Registration & Selection -->
+      <section class="lg:col-span-4 bg-slate-800 rounded-xl border border-slate-700 p-5 flex flex-col justify-between shadow-md">
+        <div>
+          <h2 class="text-md font-bold text-blue-400 border-b border-slate-700 pb-3 mb-4 flex items-center">
+            <i class="fa-solid fa-sliders mr-2"></i> 1. Instrument Specifications
+          </h2>
+
+          <form id="instForm" onsubmit="registerInstrument(event)" class="space-y-3 text-xs">
+            <div>
+              <label class="block text-slate-400 mb-1">Manufacturer</label>
+              <input type="text" id="inst_mfg" value="Mettler Toledo" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-slate-400 mb-1">Model</label>
+                <input type="text" id="inst_model" value="ICS-429" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Serial Number</label>
+                <input type="text" id="inst_serial" value="SN-2026-8841" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+              </div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-slate-400 mb-1">Capacity (Max)</label>
+                <input type="text" inputmode="decimal" id="inst_cap" value="30" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Unit</label>
+                <select id="inst_unit" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+                  <option value="kg">kg</option>
+                  <option value="g">g</option>
+                </select>
+              </div>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="block text-slate-400 mb-1">Scale Int (d)</label>
+                <input type="text" inputmode="decimal" id="inst_d" value="0.01" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Verif Int (e)</label>
+                <input type="text" inputmode="decimal" id="inst_e" value="0.01" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1">Class</label>
+                <select id="inst_class" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+                  <option value="I">Class I</option>
+                  <option value="II">Class II</option>
+                  <option value="III" selected>Class III</option>
+                  <option value="IIII">Class IIII</option>
+                </select>
+              </div>
+            </div>
+            <p class="text-[10px] text-slate-500">Values are sent as exact text (not floating point) so trailing decimals like 0.01 are never rounded on the way to the server.</p>
+            <button type="submit" class="w-full mt-2 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-semibold transition">
+              Register Instrument
+            </button>
+          </form>
+
+          <div id="instCard" class="mt-4 bg-slate-900 p-3 rounded border border-slate-700 hidden text-xs space-y-1">
+            <div class="flex justify-between text-slate-400"><span>Registered ID:</span> <span id="card_id" class="text-blue-400 font-bold">#</span></div>
+            <div class="flex justify-between text-slate-400"><span>Resolution (n):</span> <span id="card_n" class="text-slate-200 font-mono"></span></div>
+            <div class="flex justify-between text-slate-400"><span>Status:</span> <span class="text-emerald-400 font-semibold">Ready for Inspection</span></div>
+          </div>
+
+          <div class="mt-5">
+            <div class="flex justify-between items-center mb-2">
+              <h3 class="text-xs font-bold text-slate-400 uppercase">Registered Instruments</h3>
+              <button onclick="loadInstruments()" class="text-[10px] text-blue-400 hover:text-blue-300"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button>
+            </div>
+            <div id="instrumentList" class="space-y-1 max-h-40 overflow-y-auto text-xs"></div>
+          </div>
+        </div>
+
+        <div class="text-[11px] text-slate-500 mt-4 border-t border-slate-700 pt-2 flex justify-between">
+          <span>OIML R 76-1 Metrology Rules</span>
+          <span class="text-emerald-400">API Standard V2</span>
+        </div>
+      </section>
+
+      <!-- Step 2: Verification Workflows & Observations -->
+      <section class="lg:col-span-8 bg-slate-800 rounded-xl border border-slate-700 p-5 flex flex-col justify-between shadow-md">
+        <div>
+          <div class="flex justify-between items-center mb-3">
+            <div class="text-xs text-slate-400">
+              Active Instrument: <span id="activeInstLabel" class="text-blue-400 font-semibold">None selected</span>
+            </div>
+            <div class="flex gap-2 text-[10px]">
+              <input type="text" id="test_location" placeholder="Test location" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 focus:outline-none w-28">
+              <input type="text" id="ref_equipment" placeholder="Reference weights used" class="bg-slate-900 border border-slate-700 rounded px-2 py-1 focus:outline-none w-40">
+            </div>
+          </div>
+
+          <div class="flex border-b border-slate-700 space-x-6 text-sm mb-4 overflow-x-auto">
+            <button onclick="switchTab('accuracy')" id="tab-accuracy" class="pb-2 tab-active focus:outline-none whitespace-nowrap">Accuracy Points</button>
+            <button onclick="switchTab('eccentricity')" id="tab-eccentricity" class="pb-2 text-slate-400 focus:outline-none whitespace-nowrap">Eccentricity Test</button>
+            <button onclick="switchTab('environmental')" id="tab-environmental" class="pb-2 text-slate-400 focus:outline-none whitespace-nowrap">Environmental / Tilt</button>
+            <button onclick="switchTab('repeatability')" id="tab-repeatability" class="pb-2 text-slate-400 focus:outline-none whitespace-nowrap">Repeatability Test</button>
+          </div>
+
+          <!-- Dynamic Inputs based on active tab -->
+          <div id="tabContent" class="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-4">
+            <!-- Accuracy View -->
+            <div id="view-accuracy" class="grid grid-cols-4 gap-3 items-end">
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Reference Load</label>
+                <input type="text" inputmode="decimal" id="acc_ref" value="10.00" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Observed Value</label>
+                <input type="text" inputmode="decimal" id="acc_obs" value="10.02" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-400 mb-1">Direction</label>
+                <select id="acc_dir" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                  <option value="INCREASING">Increasing</option>
+                  <option value="DECREASING">Decreasing</option>
+                </select>
+              </div>
+              <button onclick="addAccuracyPoint()" class="bg-blue-600 hover:bg-blue-500 text-xs py-2 px-3 rounded font-semibold">
+                <i class="fa-solid fa-plus mr-1"></i> Add Point
+              </button>
+            </div>
+
+            <!-- Eccentricity View -->
+            <div id="view-eccentricity" class="hidden space-y-3">
+              <div class="text-xs text-slate-400">Select Load Position on Scale Pan (use ~1/3 of Max capacity):</div>
+              <div class="flex space-x-2 flex-wrap gap-y-2">
+                <button type="button" onclick="setPos('Centre')" class="pos-btn active px-3 py-1 border border-slate-700 rounded text-xs">Centre</button>
+                <button type="button" onclick="setPos('Front-Left')" class="pos-btn px-3 py-1 border border-slate-700 rounded text-xs">Front-Left</button>
+                <button type="button" onclick="setPos('Front-Right')" class="pos-btn px-3 py-1 border border-slate-700 rounded text-xs">Front-Right</button>
+                <button type="button" onclick="setPos('Rear-Left')" class="pos-btn px-3 py-1 border border-slate-700 rounded text-xs">Rear-Left</button>
+                <button type="button" onclick="setPos('Rear-Right')" class="pos-btn px-3 py-1 border border-slate-700 rounded text-xs">Rear-Right</button>
+              </div>
+              <div class="grid grid-cols-3 gap-3 items-end">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Reference Load</label>
+                  <input type="text" inputmode="decimal" id="ecc_ref" value="10.00" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Observed Value</label>
+                  <input type="text" inputmode="decimal" id="ecc_obs" value="10.01" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <button onclick="addEccentricityPoint()" class="bg-blue-600 hover:bg-blue-500 text-xs py-2 px-3 rounded font-semibold">
+                  <i class="fa-solid fa-plus mr-1"></i> Add Position
+                </button>
+              </div>
+            </div>
+
+            <!-- Environmental / Tilt View -->
+            <div id="view-environmental" class="hidden space-y-3">
+              <div class="text-xs text-slate-400">Record instrument behaviour under changed operating conditions.</div>
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Condition Label</label>
+                  <input type="text" id="env_label" value="Tilt +2°" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Reference Load</label>
+                  <input type="text" inputmode="decimal" id="env_ref" value="10.00" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Observed Value</label>
+                  <input type="text" inputmode="decimal" id="env_obs" value="10.02" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+              </div>
+              <div class="grid grid-cols-3 gap-3 items-end">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Tilt (°) — optional</label>
+                  <input type="text" inputmode="decimal" id="env_tilt" placeholder="e.g. 2" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Temp (°C) — optional</label>
+                  <input type="text" inputmode="decimal" id="env_temp" placeholder="e.g. 30" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Humidity (%) — optional</label>
+                  <input type="text" inputmode="decimal" id="env_humidity" placeholder="e.g. 60" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+              </div>
+              <button onclick="addEnvironmentalPoint()" class="bg-blue-600 hover:bg-blue-500 text-xs py-2 px-3 rounded font-semibold">
+                <i class="fa-solid fa-plus mr-1"></i> Add Condition
+              </button>
+            </div>
+
+            <!-- Repeatability View -->
+            <div id="view-repeatability" class="hidden space-y-3">
+              <div class="grid grid-cols-3 gap-3 items-end">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Repeatability Load (fixed for all runs)</label>
+                  <input type="text" inputmode="decimal" id="rep_load" value="10.00" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Observed Reading</label>
+                  <input type="text" inputmode="decimal" id="rep_reading" value="10.00" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <button onclick="addRepeatabilityReading()" class="bg-blue-600 hover:bg-blue-500 text-xs py-2 px-3 rounded font-semibold">
+                  <i class="fa-solid fa-plus mr-1"></i> Add Run
+                </button>
+              </div>
+              <p class="text-[10px] text-slate-500">Repeatability is judged by spread (max − min) against the load-appropriate MPE, not by comparing each run to the reference. At least 2 runs required.</p>
+            </div>
+          </div>
+
+          <!-- Staged Observations Preview -->
+          <div class="overflow-x-auto rounded border border-slate-700 max-h-48">
+            <table class="w-full text-left text-xs text-slate-300">
+              <thead class="bg-slate-900 text-slate-400 uppercase border-b border-slate-700">
+                <tr>
+                  <th class="p-2">Category</th>
+                  <th class="p-2">Position / Label</th>
+                  <th class="p-2">Ref Load</th>
+                  <th class="p-2">Observed</th>
+                  <th class="p-2"></th>
+                </tr>
+              </thead>
+              <tbody id="previewBody" class="divide-y divide-slate-800">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Action Footer -->
+        <div class="mt-4 border-t border-slate-700 pt-4 flex flex-wrap justify-between items-center gap-3">
+          <div class="flex items-center space-x-2">
+            <span class="text-xs text-slate-400">Report Status:</span>
+            <span id="reportStatus" class="status-pill status-DRAFT">NO REPORT YET</span>
+          </div>
+          <div class="flex space-x-2 flex-wrap gap-y-2">
+            <button onclick="submitSuite()" class="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold">
+              Submit Full Test Suite
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- PAGE 2: Report History & Approvals (Approver & Admin) -->
+    <div id="page-reports" class="page-section hidden space-y-6">
+      <section class="bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-md">
+        <div class="flex justify-between items-center mb-3">
+          <div>
+            <h2 class="text-md font-bold text-blue-400 flex items-center"><i class="fa-solid fa-clock-rotate-left mr-2"></i>Report History & Review</h2>
+            <p class="text-xs text-slate-400 mt-1">Select a pending report to review and approve or reject.</p>
+          </div>
+          <button onclick="loadReports()" class="text-[10px] text-blue-400 hover:text-blue-300"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button>
+        </div>
+
+        <!-- Selected Report Action Toolbar for Approvers -->
+        <div class="bg-slate-900/80 border border-slate-700 rounded-lg p-3 mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div class="text-xs">
+            <span class="text-slate-400">Active Review Report: </span>
+            <span id="reviewReportLabel" class="font-bold text-blue-400">None Selected</span>
+          </div>
+          <div class="flex space-x-2">
+            <button onclick="approveReport()" class="approver-only px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-xs font-semibold">
+              <i class="fa-solid fa-check mr-1"></i> Approve
+            </button>
+            <button onclick="rejectReport()" class="approver-only px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded text-xs font-semibold">
+              <i class="fa-solid fa-xmark mr-1"></i> Reject
+            </button>
+            <button onclick="downloadPdf()" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-xs font-semibold">
+              <i class="fa-solid fa-file-pdf mr-1"></i> Certificate PDF
+            </button>
+            <button onclick="reviseReport()" class="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 text-white rounded text-xs font-semibold">
+              Create Revision
+            </button>
+          </div>
+        </div>
+
+        <div class="overflow-x-auto rounded border border-slate-700">
+          <table class="w-full text-left text-xs text-slate-300">
+            <thead class="bg-slate-900 text-slate-400 uppercase border-b border-slate-700">
+              <tr>
+                <th class="p-2">Report</th>
+                <th class="p-2">Instrument</th>
+                <th class="p-2">Technician</th>
+                <th class="p-2">Status</th>
+                <th class="p-2">Result</th>
+                <th class="p-2">Approver</th>
+                <th class="p-2">Created</th>
+                <th class="p-2"></th>
+              </tr>
+            </thead>
+            <tbody id="reportsBody" class="divide-y divide-slate-800"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- PAGE 3: Manage Users (Admin only) -->
+    <div id="page-users" class="page-section hidden space-y-6">
+      <section class="bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-md">
+        <div class="flex justify-between items-center mb-3">
+          <h2 class="text-md font-bold text-blue-400 flex items-center"><i class="fa-solid fa-user-shield mr-2"></i>Manage Users</h2>
+          <button onclick="loadUsers()" class="text-[10px] text-blue-400 hover:text-blue-300"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button>
+        </div>
+
+        <form id="newUserForm" onsubmit="createUser(event)" class="grid grid-cols-1 sm:grid-cols-5 gap-2 text-xs mb-4 items-end">
+          <div>
+            <label class="block text-slate-400 mb-1">Username</label>
+            <input type="text" id="nu_username" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Full Name</label>
+            <input type="text" id="nu_fullname" required class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Initial Password</label>
+            <input type="password" id="nu_password" required minlength="8" placeholder="min. 8 characters" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+          </div>
+          <div>
+            <label class="block text-slate-400 mb-1">Role</label>
+            <select id="nu_role" class="w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 focus:outline-none focus:border-blue-500">
+              <option value="TESTER">Tester</option>
+              <option value="APPROVER">Approver</option>
+              <option value="ADMIN">Admin</option>
+            </select>
+          </div>
+          <button type="submit" class="bg-blue-600 hover:bg-blue-500 text-white py-2 rounded font-semibold transition">
+            <i class="fa-solid fa-user-plus mr-1"></i> Create Account
+          </button>
+        </form>
+        <p id="newUserMsg" class="text-xs mb-3 hidden"></p>
+
+        <div class="overflow-x-auto rounded border border-slate-700">
+          <table class="w-full text-left text-xs text-slate-300">
+            <thead class="bg-slate-900 text-slate-400 uppercase border-b border-slate-700">
+              <tr>
+                <th class="p-2">ID</th>
+                <th class="p-2">Username</th>
+                <th class="p-2">Full Name</th>
+                <th class="p-2">Role</th>
+                <th class="p-2">Status</th>
+                <th class="p-2"></th>
+              </tr>
+            </thead>
+            <tbody id="usersBody" class="divide-y divide-slate-800"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <!-- Custom Message Box (replaces alert/confirm/prompt) -->
+  <div id="mbOverlay">
+    <div class="mb-box p-5" role="dialog" aria-modal="true">
+      <div class="flex items-start space-x-3">
+        <div id="mbIcon" class="mb-icon"><i id="mbIconGlyph" class="fa-solid fa-circle-info"></i></div>
+        <div class="flex-1 min-w-0 pt-0.5">
+          <h3 id="mbTitle" class="text-sm font-bold text-slate-100"></h3>
+          <p id="mbMessage" class="text-xs text-slate-400 mt-1 leading-relaxed whitespace-pre-line"></p>
+          <input id="mbInput" type="text" class="hidden mt-3 w-full bg-slate-900 border border-slate-700 rounded px-3 py-1.5 text-xs text-slate-100 focus:outline-none">
+        </div>
+      </div>
+      <div id="mbActions" class="flex justify-end space-x-2 mt-5"></div>
+    </div>
+  </div>
+
+  <script>
+    let activeInstrumentId = null;
+    let activeReportId = null;
+    let selectedPosition = 'Centre';
+
+    let accuracyPoints = [];
+    let eccentricityPoints = [];
+    let environmentalPoints = [];
+    let repeatabilityReadings = [];
+
+    // ================= Custom Message Box Engine =================
+    // Replaces native alert() / confirm() / prompt() with a themed dialog.
+    const ICONS = {
+      info:    { glyph: 'fa-circle-info',        cls: 'mb-icon-info'    },
+      success: { glyph: 'fa-circle-check',       cls: 'mb-icon-success' },
+      error:   { glyph: 'fa-triangle-exclamation', cls: 'mb-icon-error' },
+      warn:    { glyph: 'fa-triangle-exclamation', cls: 'mb-icon-warn'  },
+    };
+
+    const mbOverlay = () => document.getElementById('mbOverlay');
+    let mbQueue = Promise.resolve();
+    let mbKeyHandler = null;
+
+    function mbRender({ title, message, type = 'info', input = false, inputValue = '', buttons }) {
+      const iconInfo = ICONS[type] || ICONS.info;
+      const iconEl = document.getElementById('mbIcon');
+      iconEl.className = 'mb-icon ' + iconInfo.cls;
+      document.getElementById('mbIconGlyph').className = 'fa-solid ' + iconInfo.glyph;
+      document.getElementById('mbTitle').innerText = title;
+      document.getElementById('mbMessage').innerText = message || '';
+
+      const inputEl = document.getElementById('mbInput');
+      if (input) {
+        inputEl.classList.remove('hidden');
+        inputEl.value = inputValue || '';
+      } else {
+        inputEl.classList.add('hidden');
+        inputEl.value = '';
+      }
+
+      const actions = document.getElementById('mbActions');
+      actions.innerHTML = '';
+      const btnEls = buttons.map((b) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.innerText = b.label;
+        btn.className = 'mb-btn text-xs font-semibold px-4 py-1.5 rounded ' + (b.style ||
+          'bg-slate-700 hover:bg-slate-600 text-slate-200');
+        actions.appendChild(btn);
+        return btn;
+      });
+      return { inputEl, btnEls };
+    }
+
+    function mbOpen(opts) {
+      return new Promise((resolve) => {
+        const overlay = mbOverlay();
+        const { inputEl, btnEls } = mbRender(opts);
+
+        const close = (value) => {
+          overlay.classList.remove('mb-open');
+          document.removeEventListener('keydown', mbKeyHandler);
+          resolve(value);
+        };
+
+        opts.buttons.forEach((b, i) => {
+          btnEls[i].onclick = () => close(b.value(inputEl));
+        });
+
+        mbKeyHandler = (e) => {
+          if (e.key === 'Escape' && opts.allowEscape !== false) close(opts.escapeValue);
+          if (e.key === 'Enter' && opts.buttons.length) close(opts.buttons[opts.buttons.length - 1].value(inputEl));
+        };
+        document.addEventListener('keydown', mbKeyHandler);
+
+        overlay.classList.add('mb-open');
+        requestAnimationFrame(() => {
+          (opts.input ? inputEl : btnEls[btnEls.length - 1])?.focus();
+          if (opts.input) inputEl.select();
+        });
+      });
+    }
+
+    // Queue dialogs so rapid-fire calls (e.g. multiple alerts) don't overlap.
+    function mbEnqueue(task) {
+      const run = () => task();
+      mbQueue = mbQueue.then(run, run);
+      return mbQueue;
+    }
+
+    function showMessage(message, { title = 'Notice', type = 'info' } = {}) {
+      return mbEnqueue(() => mbOpen({
+        title, message, type, allowEscape: true, escapeValue: undefined,
+        buttons: [{ label: 'OK', style: 'bg-blue-600 hover:bg-blue-500 text-white', value: () => undefined }],
+      }));
+    }
+
+    function showConfirm(message, { title = 'Please Confirm', danger = false } = {}) {
+      return mbEnqueue(() => mbOpen({
+        title, message, type: danger ? 'warn' : 'info', allowEscape: true, escapeValue: false,
+        buttons: [
+          { label: 'Cancel', style: 'bg-slate-700 hover:bg-slate-600 text-slate-200', value: () => false },
+          { label: danger ? 'Deactivate' : 'Confirm', style: danger
+              ? 'bg-rose-600 hover:bg-rose-500 text-white'
+              : 'bg-blue-600 hover:bg-blue-500 text-white', value: () => true },
+        ],
+      }));
+    }
+
+    function showPrompt(message, { title = 'Input Required', defaultValue = '' } = {}) {
+      return mbEnqueue(() => mbOpen({
+        title, message, type: 'info', input: true, inputValue: defaultValue,
+        allowEscape: true, escapeValue: null,
+        buttons: [
+          { label: 'Cancel', style: 'bg-slate-700 hover:bg-slate-600 text-slate-200', value: () => null },
+          { label: 'Submit', style: 'bg-blue-600 hover:bg-blue-500 text-white', value: (input) => input.value },
+        ],
+      }));
+    }
+
+    // Fire-and-forget override: alert() callers do `return alert(...)` for early
+    // exit and don't depend on blocking, so this is a drop-in replacement.
+    window.alert = function (message) {
+      const msg = String(message);
+      const isError = /fail|error|reach server/i.test(msg);
+      showMessage(msg, { title: isError ? 'Error' : 'Notice', type: isError ? 'error' : 'info' });
+      return undefined;
+    };
+    // ================================================================
+
+    let currentUser = null; // { id, username, full_name, role }
+
+    function authHeaders(extra = {}) {
+      const token = localStorage.getItem('nawi_token');
+      return token ? { ...extra, 'Authorization': `Bearer ${token}` } : extra;
+    }
+
+    async function authFetch(url, options = {}) {
+      const res = await fetch(url, { ...options, headers: authHeaders(options.headers || {}) });
+      if (res.status === 401) {
+        showLogin('Your session has expired. Please log in again.');
+        throw new Error('Not authenticated');
+      }
+      return res;
+    }
+
+    function showPage(pageId) {
+      document.querySelectorAll('.page-section').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('nav-active'));
+
+      const selectedPage = document.getElementById(`page-${pageId}`);
+      const selectedNav = document.getElementById(`nav-${pageId}`);
+
+      if (selectedPage) selectedPage.classList.remove('hidden');
+      if (selectedNav) selectedNav.classList.add('nav-active');
+
+      if (pageId === 'reports') loadReports();
+      if (pageId === 'users' && currentUser?.role === 'ADMIN') loadUsers();
+    }
+
+    function applyRoleUI() {
+      const isTester = currentUser && (currentUser.role === 'TESTER' || currentUser.role === 'ADMIN');
+      const isApprover = currentUser && (currentUser.role === 'APPROVER' || currentUser.role === 'ADMIN');
+      const isAdmin = currentUser && currentUser.role === 'ADMIN';
+
+      document.querySelectorAll('.tester-only').forEach(el => el.classList.toggle('hidden', !isTester));
+      document.querySelectorAll('.approver-only').forEach(el => el.classList.toggle('hidden', !isApprover));
+      document.querySelectorAll('.admin-only').forEach(el => el.classList.toggle('hidden', !isAdmin));
+
+      document.getElementById('currentUserLabel').innerText = currentUser.full_name;
+      document.getElementById('currentRoleLabel').innerText = currentUser.role;
+
+      // Route to default page according to role permissions
+      if (currentUser.role === 'APPROVER') {
+        showPage('reports');
+      } else if (currentUser.role === 'ADMIN') {
+        showPage('users');
+      } else {
+        showPage('testing');
+      }
+    }
+
+    function showLogin(message) {
+      document.getElementById('loginOverlay').classList.remove('hidden');
+      const err = document.getElementById('loginError');
+      if (message) { err.innerText = message; err.classList.remove('hidden'); }
+      else { err.classList.add('hidden'); }
+    }
+
+    async function doLogin(e) {
+      e.preventDefault();
+      const username = document.getElementById('login_username').value.trim();
+      const password = document.getElementById('login_password').value;
+      const err = document.getElementById('loginError');
+      err.classList.add('hidden');
+      try {
+        const body = new URLSearchParams({ username, password });
+        const res = await fetch('/api/auth/login', { method: 'POST', body });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Login failed');
+        localStorage.setItem('nawi_token', data.access_token);
+        currentUser = data.user;
+        document.getElementById('loginOverlay').classList.add('hidden');
+        document.getElementById('loginForm').reset();
+        applyRoleUI();
+        loadInstruments();
+      } catch (ex) {
+        err.innerText = ex.message;
+        err.classList.remove('hidden');
+      }
+    }
+
+    function doLogout() {
+      localStorage.removeItem('nawi_token');
+      currentUser = null;
+      showLogin();
+    }
+
+    async function initSession() {
+      const token = localStorage.getItem('nawi_token');
+      if (!token) return showLogin();
+      try {
+        const res = await fetch('/api/auth/me', { headers: authHeaders() });
+        if (!res.ok) throw new Error();
+        currentUser = await res.json();
+        document.getElementById('loginOverlay').classList.add('hidden');
+        applyRoleUI();
+        loadInstruments();
+      } catch (ex) {
+        localStorage.removeItem('nawi_token');
+        showLogin();
+      }
+    }
+
+    function switchTab(tab) {
+      ['accuracy', 'eccentricity', 'environmental', 'repeatability'].forEach(t => {
+        document.getElementById(`tab-${t}`).className = t === tab ? 'pb-2 tab-active focus:outline-none whitespace-nowrap' : 'pb-2 text-slate-400 focus:outline-none whitespace-nowrap';
+        document.getElementById(`view-${t}`).classList.toggle('hidden', t !== tab);
+      });
+    }
+
+    function setPos(pos) {
+      selectedPosition = pos;
+      document.querySelectorAll('.pos-btn').forEach(b => {
+        b.classList.toggle('active', b.innerText === pos);
+      });
+    }
+
+    function setStatusPill(text, cls) {
+      const el = document.getElementById('reportStatus');
+      el.innerText = text;
+      el.className = `status-pill status-${cls}`;
+    }
+
+    // ---- Instruments ----
+
+    async function registerInstrument(e) {
+      e.preventDefault();
+      const payload = {
+        manufacturer: document.getElementById('inst_mfg').value.trim(),
+        model: document.getElementById('inst_model').value.trim(),
+        serial_number: document.getElementById('inst_serial').value.trim(),
+        capacity: document.getElementById('inst_cap').value.trim(),
+        unit: document.getElementById('inst_unit').value,
+        d: document.getElementById('inst_d').value.trim(),
+        e: document.getElementById('inst_e').value.trim(),
+        accuracy_class: document.getElementById('inst_class').value
+      };
+
+      try {
+        const res = await authFetch('/api/instruments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Registration failed');
+
+        activeInstrumentId = data.id;
+        document.getElementById('card_id').innerText = `#${data.id}`;
+        document.getElementById('card_n').innerText = `${data.n} e`;
+        document.getElementById('instCard').classList.remove('hidden');
+        document.getElementById('activeInstLabel').innerText = `#${data.id} — ${payload.manufacturer} ${payload.model} (${payload.serial_number})`;
+        loadInstruments();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function loadInstruments() {
+      const res = await authFetch('/api/instruments');
+      const rows = await res.json();
+      const list = document.getElementById('instrumentList');
+      list.innerHTML = '';
+      rows.forEach(r => {
+        const div = document.createElement('div');
+        div.className = 'flex justify-between items-center bg-slate-900 border border-slate-700 rounded px-2 py-1.5 cursor-pointer hover:border-blue-500';
+        div.innerHTML = `<span>#${r.id} ${r.manufacturer} ${r.model} <span class="text-slate-500">(${r.serial_number})</span></span><span class="text-blue-400">Class ${r.accuracy_class}</span>`;
+        div.onclick = () => selectInstrument(r);
+        list.appendChild(div);
+      });
+    }
+
+    function selectInstrument(r) {
+      activeInstrumentId = r.id;
+      document.getElementById('activeInstLabel').innerText = `#${r.id} — ${r.manufacturer} ${r.model} (${r.serial_number})`;
+    }
+
+    // ---- Staged observations ----
+
+    function addAccuracyPoint() {
+      accuracyPoints.push({
+        reference_load: document.getElementById('acc_ref').value.trim(),
+        observed_value: document.getElementById('acc_obs').value.trim(),
+        direction: document.getElementById('acc_dir').value
+      });
+      renderPreview();
+    }
+
+    function addEccentricityPoint() {
+      eccentricityPoints.push({
+        position: selectedPosition,
+        reference_load: document.getElementById('ecc_ref').value.trim(),
+        observed_value: document.getElementById('ecc_obs').value.trim()
+      });
+      renderPreview();
+    }
+
+    function addEnvironmentalPoint() {
+      const point = {
+        condition_label: document.getElementById('env_label').value.trim(),
+        reference_load: document.getElementById('env_ref').value.trim(),
+        observed_value: document.getElementById('env_obs').value.trim()
+      };
+      const tilt = document.getElementById('env_tilt').value.trim();
+      const temp = document.getElementById('env_temp').value.trim();
+      const hum = document.getElementById('env_humidity').value.trim();
+      if (tilt) point.tilt_degrees = tilt;
+      if (temp) point.temperature_c = temp;
+      if (hum) point.humidity_pct = hum;
+      environmentalPoints.push(point);
+      renderPreview();
+    }
+
+    let repeatabilityLoad = '10.00';
+    function addRepeatabilityReading() {
+      repeatabilityLoad = document.getElementById('rep_load').value.trim();
+      repeatabilityReadings.push(document.getElementById('rep_reading').value.trim());
+      renderPreview();
+    }
+
+    function removeStaged(kind, idx) {
+      if (kind === 'accuracy') accuracyPoints.splice(idx, 1);
+      if (kind === 'eccentricity') eccentricityPoints.splice(idx, 1);
+      if (kind === 'environmental') environmentalPoints.splice(idx, 1);
+      if (kind === 'repeatability') repeatabilityReadings.splice(idx, 1);
+      renderPreview();
+    }
+
+    function renderPreview() {
+      const tbody = document.getElementById('previewBody');
+      tbody.innerHTML = '';
+      const row = (cat, pos, ref, obs, kind, idx) => `<tr>
+          <td class="p-2">${cat}</td><td class="p-2">${pos}</td><td class="p-2">${ref}</td><td class="p-2">${obs}</td>
+          <td class="p-2 text-right"><button onclick="removeStaged('${kind}',${idx})" class="text-slate-500 hover:text-rose-400"><i class="fa-solid fa-xmark"></i></button></td>
+        </tr>`;
+
+      accuracyPoints.forEach((p, i) => tbody.innerHTML += row('Accuracy', `Centre (${p.direction})`, p.reference_load, p.observed_value, 'accuracy', i));
+      eccentricityPoints.forEach((p, i) => tbody.innerHTML += row('Eccentricity', p.position, p.reference_load, p.observed_value, 'eccentricity', i));
+      environmentalPoints.forEach((p, i) => tbody.innerHTML += row('Environmental', p.condition_label, p.reference_load, p.observed_value, 'environmental', i));
+      repeatabilityReadings.forEach((r, i) => tbody.innerHTML += row('Repeatability', 'Centre', repeatabilityLoad, r, 'repeatability', i));
+    }
+
+    // ---- Report lifecycle ----
+
+    async function submitSuite() {
+      if (!activeInstrumentId) return alert('Select or register an instrument first!');
+      const payload = {
+        instrument_id: activeInstrumentId,
+        test_location: document.getElementById('test_location').value.trim() || null,
+        reference_equipment: document.getElementById('ref_equipment').value.trim() || null,
+        accuracy_points: accuracyPoints,
+        eccentricity_points: eccentricityPoints,
+        environmental_points: environmentalPoints,
+        repeatability_readings: repeatabilityReadings
+      };
+      if (repeatabilityReadings.length > 0) payload.repeatability_load = repeatabilityLoad;
+
+      const res = await authFetch('/api/tests/submit-full-suite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        activeReportId = data.report_id;
+        setStatusPill(`DRAFT #${data.report_id} — ${data.overall_result}`, 'DRAFT');
+        alert(`Suite submitted! Report #${data.report_id}. Result: ${data.overall_result}`);
+        accuracyPoints = []; eccentricityPoints = []; environmentalPoints = []; repeatabilityReadings = [];
+        renderPreview();
+      } else {
+        alert(data.detail ? JSON.stringify(data.detail) : 'Submission failed');
+      }
+    }
+
+    async function approveReport() {
+      if (!activeReportId) return alert('Select a report from the table first!');
+      try {
+        const res = await authFetch('/api/reports/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ report_id: activeReportId })
+        });
+        const data = await res.json();
+        if (res.ok) {
+          alert(data.message);
+          loadReports();
+        } else {
+          alert(`Approval Failed: ${data.detail}`);
+        }
+      } catch (err) {
+        alert('Failed to reach server.');
+      }
+    }
+
+    async function rejectReport() {
+      if (!activeReportId) return alert('Select a report from the table first!');
+      const reason = await showPrompt('Please provide a reason for rejecting this report.', { title: 'Reject Report' });
+      if (!reason) return;
+      const res = await authFetch('/api/reports/reject', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report_id: activeReportId, reason })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        alert(data.message);
+        loadReports();
+      } else {
+        alert(`Rejection failed: ${data.detail}`);
+      }
+    }
+
+    async function reviseReport() {
+      if (!activeReportId) return alert('Select a report first!');
+      const res = await authFetch('/api/reports/revise', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ report_id: activeReportId })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        activeReportId = data.report_id;
+        setStatusPill(`DRAFT #${data.report_id} (revision)`, 'DRAFT');
+        alert(data.message);
+      } else {
+        alert(`Revision failed: ${data.detail}`);
+      }
+    }
+
+    async function downloadPdf() {
+      if (!activeReportId) return alert('No report selected for PDF export!');
+      try {
+        const res = await authFetch(`/api/reports/${activeReportId}/pdf`);
+        if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.detail || 'PDF download failed'); }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    // ---- User management (ADMIN only) ----
+
+    async function loadUsers() {
+      try {
+        const res = await authFetch('/api/auth/users');
+        if (!res.ok) return;
+        const rows = await res.json();
+        const tbody = document.getElementById('usersBody');
+        tbody.innerHTML = '';
+        rows.forEach(u => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td class="p-2">#${u.id}</td>
+            <td class="p-2">${u.username}</td>
+            <td class="p-2">${u.full_name}</td>
+            <td class="p-2">${u.role}</td>
+            <td class="p-2">${u.active ? '<span class="text-emerald-400">Active</span>' : '<span class="text-slate-500">Deactivated</span>'}</td>
+            <td class="p-2 text-right">
+              ${u.active && u.id !== currentUser.id
+                ? `<button onclick="deactivateUser(${u.id})" class="text-rose-400 hover:text-rose-300 text-[10px]">Deactivate</button>`
+                : ''}
+            </td>`;
+          tbody.appendChild(tr);
+        });
+      } catch (err) { }
+    }
+
+    async function createUser(e) {
+      e.preventDefault();
+      const msg = document.getElementById('newUserMsg');
+      msg.className = 'text-xs mb-3 hidden';
+      const payload = {
+        username: document.getElementById('nu_username').value.trim(),
+        full_name: document.getElementById('nu_fullname').value.trim(),
+        password: document.getElementById('nu_password').value,
+        role: document.getElementById('nu_role').value
+      };
+      try {
+        const res = await authFetch('/api/auth/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Could not create account');
+        msg.innerText = `Account created: ${data.username} (${data.role}). Share credentials with them directly.`;
+        msg.className = 'text-xs mb-3 text-emerald-400';
+        document.getElementById('newUserForm').reset();
+        loadUsers();
+      } catch (err) {
+        msg.innerText = err.message;
+        msg.className = 'text-xs mb-3 text-rose-400';
+      }
+    }
+
+    async function deactivateUser(userId) {
+      const ok = await showConfirm('This account will be logged out immediately and lose access.', { title: 'Deactivate Account', danger: true });
+      if (!ok) return;
+      try {
+        const res = await authFetch(`/api/auth/users/${userId}/deactivate`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Could not deactivate account');
+        loadUsers();
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function loadReports() {
+      const res = await authFetch('/api/reports');
+      const rows = await res.json();
+      const tbody = document.getElementById('reportsBody');
+      tbody.innerHTML = '';
+      rows.forEach(r => {
+        const tr = document.createElement('tr');
+        tr.className = 'cursor-pointer hover:bg-slate-900/50';
+        tr.innerHTML = `
+          <td class="p-2">#${r.id}${r.revision_number > 1 ? ` (rev ${r.revision_number})` : ''}</td>
+          <td class="p-2">${r.manufacturer} ${r.model} <span class="text-slate-500">(${r.serial_number})</span></td>
+          <td class="p-2">${r.technician_name}</td>
+          <td class="p-2"><span class="status-pill status-${r.status}">${r.status}</span></td>
+          <td class="p-2 result-${r.overall_result}">${r.overall_result}</td>
+          <td class="p-2">${r.approved_by || '—'}</td>
+          <td class="p-2">${r.created_at || '—'}</td>
+          <td class="p-2 text-right"><button class="text-blue-400 hover:text-blue-300 text-[10px]">Select</button></td>
+        `;
+        tr.onclick = () => {
+          activeReportId = r.id;
+          document.getElementById('reviewReportLabel').innerText = `#${r.id} (${r.status} - ${r.overall_result})`;
+        };
+        tbody.appendChild(tr);
+      });
+    }
+
+    initSession();
+    
+  </script>
+</body>
+</html>

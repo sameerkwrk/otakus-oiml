@@ -1,13 +1,14 @@
-from fastapi import FastAPI, HTTPException, Depends, Response
+from fastapi import FastAPI, HTTPException, Depends, Response, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 from decimal import Decimal, InvalidOperation
 from typing import List, Generator, Optional, Literal
 import sqlite3
 import os
-
 from app.mpe_engine import MetrologyEngine, MetrologyValidationError, MPE_RULE_VERSION
 from app.auth import (
     TokenUser,
@@ -22,6 +23,38 @@ from app.auth import (
 DATABASE = "nawi_system.db"
 app = FastAPI(title="NAWI Metrology Platform")
 
+# =====================================================================
+# CLEAN ERROR HANDLERS (Fixes the "weird ass errors")
+# =====================================================================
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Flattens Pydantic's nested 422 validation errors into a single, 
+    clean, human-readable string so the frontend doesn't choke on 
+    [object Object] or messy JSON arrays.
+    """
+    messages = []
+    for err in exc.errors():
+        msg = err.get("msg", "")
+        # Pydantic v2 wraps model_validator ValueErrors as "Value error, <msg>"
+        if msg.startswith("Value error, "):
+            msg = msg[len("Value error, "):]
+        messages.append(msg)
+    
+    clean_msg = "; ".join(messages) if messages else "Invalid input data."
+    return JSONResponse(status_code=422, content={"detail": clean_msg})
+
+@app.exception_handler(MetrologyValidationError)
+async def metrology_validation_exception_handler(request: Request, exc: MetrologyValidationError):
+    """
+    Catches any metrological rule violations (e.g., invalid n, e, d, etc.) 
+    and returns a clean 400 Bad Request instead of a 500 Internal Server Error.
+    """
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
+
+# =====================================================================
+# CORS & DB Setup
+# =====================================================================
 # NOTE (spec 9.5): wildcard CORS is convenient for local hackathon/demo use
 # only. Before any real deployment, lock allow_origins down to the actual
 # frontend origin(s) and add real authentication (see README notes).
@@ -32,9 +65,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 def get_db() -> Generator[sqlite3.Connection, None, None]:
-    conn = sqlite3.connect(DATABASE,check_same_thread=False)
+    conn = sqlite3.connect(DATABASE, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:
@@ -42,12 +74,11 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
     finally:
         conn.close()
 
-
 def init_db():
     with sqlite3.connect(DATABASE) as conn:
         cursor = conn.cursor()
         # Login accounts. Passwords are never stored in plaintext -- only
-        # a bcrypt hash. `role` is the sole source of truth for what an
+        # a bcrypt hash.  `role`  is the sole source of truth for what an
         # account is allowed to do server-side (see app/auth.py); the
         # frontend UI hiding buttons is a convenience, not the boundary.
         cursor.execute("""
@@ -61,6 +92,7 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
         # NOTE: capacity/d/e/n and all observation numeric fields are stored
         # as TEXT, not REAL. SQLite REAL is IEEE-754 double and silently
         # loses precision on round-trip (e.g. 0.1 kg does not store exactly).
@@ -139,7 +171,6 @@ def init_db():
         """)
         conn.commit()
 
-
 def bootstrap_admin():
     """If no accounts exist yet, create one ADMIN account so there's a way
     to log in at all and start creating TESTER/APPROVER accounts. Reads
@@ -151,26 +182,26 @@ def bootstrap_admin():
         existing = cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0]
         if existing > 0:
             return
+        
         username = os.environ.get("NAWI_ADMIN_USERNAME", "admin")
         password = os.environ.get("NAWI_ADMIN_PASSWORD")
         if not password:
             password = "change-me-immediately"
             print(
-                "\n[NAWI] No users exist yet -- created default admin account "
+                "\n[NAWI] No users exist yet -- created default admin account  "
                 f"'{username}' / 'change-me-immediately'.\n"
-                "[NAWI] Set NAWI_ADMIN_USERNAME / NAWI_ADMIN_PASSWORD env vars "
+                "[NAWI] Set NAWI_ADMIN_USERNAME / NAWI_ADMIN_PASSWORD env vars  "
                 "and log in to change this before using the system for real.\n"
             )
+        
         cursor.execute(
             "INSERT INTO users (username, password_hash, full_name, role) VALUES (?, ?, ?, 'ADMIN')",
             (username, hash_password(password), os.environ.get("NAWI_ADMIN_FULL_NAME", "System Administrator")),
         )
         conn.commit()
 
-
 init_db()
 bootstrap_admin()
-
 
 def log_audit(cursor, user_id: str, action: str, record_type: str, record_id: int, detail: str = ""):
     cursor.execute(
@@ -178,17 +209,14 @@ def log_audit(cursor, user_id: str, action: str, record_type: str, record_id: in
         (user_id, action, record_type, record_id, detail),
     )
 
-
 # =====================================================================
 # Schemas
 # =====================================================================
-
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     password: str = Field(..., min_length=8)
     full_name: str = Field(..., min_length=1)
     role: Literal["TESTER", "APPROVER", "ADMIN"]
-
 
 class UserOut(BaseModel):
     id: int
@@ -197,12 +225,10 @@ class UserOut(BaseModel):
     role: str
     active: bool
 
-
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
-
 
 class InstrumentCreate(BaseModel):
     manufacturer: str = Field(..., min_length=1)
@@ -214,18 +240,15 @@ class InstrumentCreate(BaseModel):
     e: Decimal = Field(..., gt=0)
     accuracy_class: Literal["I", "II", "III", "IIII"]
 
-
 class AccuracyPoint(BaseModel):
     reference_load: Decimal = Field(..., ge=0)
     observed_value: Decimal
     direction: Literal["INCREASING", "DECREASING"] = "INCREASING"
 
-
 class EccentricityPoint(BaseModel):
     position: Literal["Centre", "Front-Left", "Front-Right", "Rear-Left", "Rear-Right"]
     reference_load: Decimal = Field(..., ge=0)
     observed_value: Decimal
-
 
 class EnvironmentalPoint(BaseModel):
     condition_label: str = Field(..., min_length=1)
@@ -234,7 +257,6 @@ class EnvironmentalPoint(BaseModel):
     temperature_c: Optional[Decimal] = None
     tilt_degrees: Optional[Decimal] = None
     humidity_pct: Optional[Decimal] = None
-
 
 class FullTestSubmission(BaseModel):
     instrument_id: int
@@ -260,27 +282,22 @@ class FullTestSubmission(BaseModel):
             raise ValueError("At least 2 repeatability readings are required to evaluate repeatability.")
         return self
 
-
 class ApprovalRequest(BaseModel):
     report_id: int
     # approver_name is taken from the authenticated APPROVER's account,
     # not supplied by the client -- see approve_report.
 
-
 class RejectionRequest(BaseModel):
     report_id: int
     reason: str = Field(..., min_length=1)
-
 
 class RevisionRequest(BaseModel):
     report_id: int
     # technician_name is taken from the authenticated TESTER's account.
 
-
 # =====================================================================
 # Auth
 # =====================================================================
-
 @app.post("/api/auth/login", response_model=TokenResponse)
 def login(form: OAuth2PasswordRequestForm = Depends(), db: sqlite3.Connection = Depends(get_db)):
     cursor = db.cursor()
@@ -288,7 +305,7 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: sqlite3.Connection = 
         "SELECT id, username, password_hash, full_name, role, active FROM users WHERE username = ?",
         (form.username,),
     ).fetchone()
-
+    
     # Same error for "no such user" and "wrong password" so login can't be
     # used to enumerate valid usernames.
     invalid = HTTPException(status_code=401, detail="Incorrect username or password.")
@@ -296,18 +313,16 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: sqlite3.Connection = 
         raise invalid
     if not row["active"]:
         raise HTTPException(status_code=403, detail="This account has been deactivated.")
-
+    
     user = TokenUser(id=row["id"], username=row["username"], full_name=row["full_name"], role=row["role"])
     token = create_access_token(user)
     log_audit(cursor, user.username, "LOGIN", "users", user.id)
     db.commit()
     return TokenResponse(access_token=token, user=UserOut(**user.model_dump(), active=True))
 
-
 @app.get("/api/auth/me", response_model=UserOut)
 def read_current_user(user: TokenUser = Depends(get_current_user)):
     return UserOut(**user.model_dump(), active=True)
-
 
 @app.post("/api/auth/register", response_model=UserOut)
 def register_user(
@@ -329,15 +344,14 @@ def register_user(
         db.commit()
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="Username already exists.")
+    
     return UserOut(id=new_id, username=data.username, full_name=data.full_name, role=data.role, active=True)
-
 
 @app.get("/api/auth/users", response_model=List[UserOut])
 def list_users(db: sqlite3.Connection = Depends(get_db), admin: TokenUser = Depends(require_role("ADMIN"))):
     cursor = db.cursor()
     rows = cursor.execute("SELECT id, username, full_name, role, active FROM users ORDER BY id").fetchall()
     return [UserOut(**dict(r)) for r in rows]
-
 
 @app.post("/api/auth/users/{user_id}/deactivate", response_model=UserOut)
 def deactivate_user(
@@ -351,27 +365,24 @@ def deactivate_user(
         raise HTTPException(status_code=404, detail="User not found.")
     if row["id"] == admin.id:
         raise HTTPException(status_code=400, detail="You cannot deactivate your own account.")
+    
     cursor.execute("UPDATE users SET active = 0 WHERE id = ?", (user_id,))
     log_audit(cursor, admin.username, "DEACTIVATE_USER", "users", user_id)
     db.commit()
     return UserOut(id=row["id"], username=row["username"], full_name=row["full_name"], role=row["role"], active=False)
 
-
 # =====================================================================
 # Instruments
 # =====================================================================
-
 @app.post("/api/instruments")
 def register_instrument(
     data: InstrumentCreate,
     db: sqlite3.Connection = Depends(get_db),
     user: TokenUser = Depends(require_role("TESTER", "ADMIN")),
 ):
-    try:
-        n = MetrologyEngine.validate_instrument(data.capacity, data.d, data.e, data.accuracy_class)
-    except MetrologyValidationError as ex:
-        raise HTTPException(status_code=400, detail=str(ex))
-
+    # The global MetrologyValidationError handler will catch this and return a clean 400 error.
+    n = MetrologyEngine.validate_instrument(data.capacity, data.d, data.e, data.accuracy_class)
+    
     cursor = db.cursor()
     try:
         cursor.execute(
@@ -382,19 +393,17 @@ def register_instrument(
         )
         instrument_id = cursor.lastrowid
         log_audit(cursor, user.username, "REGISTER_INSTRUMENT", "instruments", instrument_id,
-                   f"serial={data.serial_number}")
+                  f"serial={data.serial_number}")
         db.commit()
         return {"id": instrument_id, "n": str(n), "message": "Instrument registered successfully"}
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=400, detail="Serial number already exists.")
-
 
 @app.get("/api/instruments")
 def list_instruments(db: sqlite3.Connection = Depends(get_db), user: TokenUser = Depends(require_role())):
     cursor = db.cursor()
     cursor.execute("SELECT * FROM instruments ORDER BY id DESC")
     return [dict(r) for r in cursor.fetchall()]
-
 
 @app.get("/api/instruments/{instrument_id}")
 def get_instrument(
@@ -409,11 +418,9 @@ def get_instrument(
         raise HTTPException(status_code=404, detail="Instrument not found.")
     return dict(row)
 
-
 # =====================================================================
 # Test submission
 # =====================================================================
-
 @app.post("/api/tests/submit-full-suite")
 def submit_full_test_suite(
     req: FullTestSubmission,
@@ -425,10 +432,10 @@ def submit_full_test_suite(
     inst = cursor.fetchone()
     if not inst:
         raise HTTPException(status_code=404, detail="Instrument not found.")
-
+    
     e_val = Decimal(inst["e"])
     acc_class = inst["accuracy_class"]
-
+    
     cursor.execute(
         """INSERT INTO test_reports
            (instrument_id, technician_name, technician_user_id, test_location, reference_equipment,
@@ -437,10 +444,10 @@ def submit_full_test_suite(
         (req.instrument_id, user.full_name, user.id, req.test_location, req.reference_equipment, MPE_RULE_VERSION),
     )
     report_id = cursor.lastrowid
-
+    
     all_observations = []
     overall_pass = True
-
+    
     # 1. Accuracy / linearity points (increasing & decreasing loads, order preserved)
     for pt in req.accuracy_points:
         res = MetrologyEngine.evaluate_observation(pt.reference_load, pt.observed_value, e_val, acc_class)
@@ -448,7 +455,7 @@ def submit_full_test_suite(
         if res["status"] == "FAIL":
             overall_pass = False
         all_observations.append(res)
-
+        
     # 2. Eccentricity points
     for pt in req.eccentricity_points:
         res = MetrologyEngine.evaluate_observation(pt.reference_load, pt.observed_value, e_val, acc_class)
@@ -456,7 +463,7 @@ def submit_full_test_suite(
         if res["status"] == "FAIL":
             overall_pass = False
         all_observations.append(res)
-
+        
     # 3. Environmental / tilt points
     for pt in req.environmental_points:
         res = MetrologyEngine.evaluate_observation(pt.reference_load, pt.observed_value, e_val, acc_class)
@@ -470,7 +477,7 @@ def submit_full_test_suite(
         if res["status"] == "FAIL":
             overall_pass = False
         all_observations.append(res)
-
+        
     # 4. Repeatability: report readings for traceability, but pass/fail is
     # determined ONLY by spread (max-min) against the load-appropriate MPE,
     # never by comparing an individual reading to the reference (spec 5.2).
@@ -481,7 +488,6 @@ def submit_full_test_suite(
         )
         if rep_res["status"] == "FAIL":
             overall_pass = False
-
         for idx, reading in enumerate(req.repeatability_readings):
             all_observations.append({
                 "test_type": f"Repeatability (Run #{idx + 1})",
@@ -495,7 +501,6 @@ def submit_full_test_suite(
                 # summary (spread) row below, not on each run.
                 "status": "RECORDED",
             })
-
         all_observations.append({
             "test_type": "Repeatability (Spread Summary)",
             "position": "Centre",
@@ -505,7 +510,7 @@ def submit_full_test_suite(
             "mpe": rep_res["allowed_mpe"],
             "status": rep_res["status"],
         })
-
+        
     db_rows = [
         (
             report_id,
@@ -523,6 +528,7 @@ def submit_full_test_suite(
         )
         for o in all_observations
     ]
+    
     cursor.executemany(
         """INSERT INTO test_observations
            (report_id, test_type, reference_load, observed_value, position, direction,
@@ -530,12 +536,12 @@ def submit_full_test_suite(
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         db_rows,
     )
-
+    
     final_status = "PASS" if overall_pass else "FAIL"
     cursor.execute("UPDATE test_reports SET overall_result = ? WHERE id = ?", (final_status, report_id))
     log_audit(cursor, user.username, "CREATE_REPORT", "test_reports", report_id, f"result={final_status}")
     db.commit()
-
+    
     return {
         "report_id": report_id,
         "overall_result": final_status,
@@ -546,11 +552,9 @@ def submit_full_test_suite(
         ],
     }
 
-
 # =====================================================================
 # Reports: listing, review, approval, rejection, revision
 # =====================================================================
-
 @app.get("/api/reports")
 def list_reports(db: sqlite3.Connection = Depends(get_db), user: TokenUser = Depends(require_role())):
     cursor = db.cursor()
@@ -562,7 +566,6 @@ def list_reports(db: sqlite3.Connection = Depends(get_db), user: TokenUser = Dep
         ORDER BY r.id DESC
     """)
     return [dict(r) for r in cursor.fetchall()]
-
 
 @app.get("/api/reports/{report_id}")
 def get_report(
@@ -578,10 +581,10 @@ def get_report(
     report = cursor.fetchone()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found.")
+    
     cursor.execute("SELECT * FROM test_observations WHERE report_id = ? ORDER BY id", (report_id,))
     obs = cursor.fetchall()
     return {"report": dict(report), "observations": [dict(o) for o in obs]}
-
 
 @app.post("/api/reports/approve")
 def approve_report(
@@ -594,17 +597,16 @@ def approve_report(
     report = cursor.fetchone()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found.")
-
     if report["status"] == "APPROVED":
         raise HTTPException(status_code=400, detail="Report is already approved.")
-
+        
     # Identity-based check (by account id), not a case-insensitive string
     # match on a free-text name -- closes the gap where two different
     # people typing the same display name could approve each other's
     # work, or a technician could approve their own by mistyping.
     if report["technician_user_id"] is not None and report["technician_user_id"] == user.id:
         raise HTTPException(status_code=400, detail="You cannot approve your own report.")
-
+        
     cursor.execute(
         "UPDATE test_reports SET status = 'APPROVED', approved_by = ?, approver_user_id = ?, "
         "approved_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -613,7 +615,6 @@ def approve_report(
     log_audit(cursor, user.username, "APPROVE_REPORT", "test_reports", req.report_id)
     db.commit()
     return {"message": f"Report #{req.report_id} successfully approved."}
-
 
 @app.post("/api/reports/reject")
 def reject_report(
@@ -630,7 +631,7 @@ def reject_report(
         raise HTTPException(status_code=400, detail="An approved report cannot be rejected.")
     if report["technician_user_id"] is not None and report["technician_user_id"] == user.id:
         raise HTTPException(status_code=400, detail="You cannot reject your own report.")
-
+        
     cursor.execute(
         "UPDATE test_reports SET status = 'REJECTED', approved_by = ?, approver_user_id = ?, "
         "rejection_reason = ? WHERE id = ?",
@@ -639,7 +640,6 @@ def reject_report(
     log_audit(cursor, user.username, "REJECT_REPORT", "test_reports", req.report_id, req.reason)
     db.commit()
     return {"message": f"Report #{req.report_id} rejected. Create a revised report to correct it."}
-
 
 @app.post("/api/reports/revise")
 def revise_report(
@@ -658,7 +658,7 @@ def revise_report(
         raise HTTPException(status_code=404, detail="Report not found.")
     if original["status"] == "DRAFT":
         raise HTTPException(status_code=400, detail="A DRAFT report does not need a revision; submit corrections directly.")
-
+        
     cursor.execute(
         """INSERT INTO test_reports
            (instrument_id, technician_name, technician_user_id, test_location, reference_equipment,
@@ -672,11 +672,10 @@ def revise_report(
     )
     new_report_id = cursor.lastrowid
     log_audit(cursor, user.username, "REVISE_REPORT", "test_reports", new_report_id,
-               f"supersedes report #{original['id']}")
+              f"supersedes report #{original['id']}")
     db.commit()
     return {"message": f"Revision created as report #{new_report_id}. Submit new observations against it.",
             "report_id": new_report_id, "parent_report_id": original["id"]}
-
 
 @app.get("/api/reports/{report_id}/pdf")
 def download_pdf(
@@ -685,7 +684,7 @@ def download_pdf(
     user: TokenUser = Depends(require_role()),
 ):
     from app.report_generator import generate_pdf_certificate
-
+    
     cursor = db.cursor()
     cursor.execute("""
         SELECT r.*, i.manufacturer, i.model, i.serial_number, i.capacity, i.unit, i.d, i.e, i.accuracy_class, i.n
@@ -696,16 +695,16 @@ def download_pdf(
     report = cursor.fetchone()
     if not report:
         raise HTTPException(status_code=404, detail="Report not found.")
-
+        
     cursor.execute("SELECT * FROM test_observations WHERE report_id = ? ORDER BY id", (report_id,))
     obs_rows = cursor.fetchall()
-
+    
     pdf_bytes = generate_pdf_certificate(dict(report), [dict(o) for o in obs_rows])
+    
     # report_id is a path-typed int, so no filename sanitization gap here.
     return Response(content=pdf_bytes, media_type="application/pdf", headers={
         "Content-Disposition": f"attachment; filename=Verification_Certificate_{report_id}.pdf"
     })
-
 
 if os.path.exists("static"):
     app.mount("/", StaticFiles(directory="static", html=True), name="static")
