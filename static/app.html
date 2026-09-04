@@ -60,7 +60,9 @@
   <div id="loginOverlay" class="fixed inset-0 bg-slate-950/95 z-50 flex items-center justify-center p-4">
     <form id="loginForm" onsubmit="doLogin(event)" class="bg-slate-800 border border-slate-700 rounded-xl p-6 w-full max-w-sm shadow-xl space-y-4">
       <div class="flex items-center space-x-3 mb-2">
-        <div class="bg-blue-600 text-white p-2 rounded-lg text-xl font-bold"><i class="fa-solid fa-scale-balanced"></i></div>
+        <div class="bg-white p-1 rounded-lg overflow-hidden" style="width:44px;height:44px;flex-shrink:0;">
+        <img src="/oiml_logo.jpeg" alt="OIML logo" class="w-full h-full object-cover rounded">
+      </div>
         <div>
           <h1 class="text-lg font-bold">NAWI Legal Metrology Suite</h1>
           <p class="text-xs text-slate-400">Sign in to continue</p>
@@ -83,8 +85,8 @@
   <!-- Header -->
   <header class="bg-slate-800 border-b border-slate-700 px-6 py-4 flex flex-wrap justify-between items-center shadow-lg gap-3">
     <div class="flex items-center space-x-3">
-      <div class="bg-blue-600 text-white p-2 rounded-lg text-xl font-bold">
-        <i class="fa-solid fa-scale-balanced"></i>
+      <div class="bg-white p-1 rounded-lg overflow-hidden" style="width:44px;height:44px;flex-shrink:0;">
+        <img src="/oiml_logo.jpeg" alt="OIML logo" class="w-full h-full object-cover rounded">
       </div>
       <div>
         <h1 class="text-xl font-bold tracking-wide">NAWI Legal Metrology Suite</h1>
@@ -105,7 +107,7 @@
   </header>
 
   <!-- Navigation Bar -->
-  <nav id="topNav" class="bg-slate-800/80 border-b border-slate-700 px-6 py-2 flex space-x-6 text-xs font-medium">
+  <nav id="topNav" class="bg-slate-800/80  border-b border-slate-700 px-6 py-2 flex justify-center items-center space-x-6 text-xs font-medium">
     <button id="nav-testing" onclick="showPage('testing')" class="tester-only nav-btn pb-1 text-slate-400 hover:text-slate-200 focus:outline-none">
       <i class="fa-solid fa-vial mr-1.5"></i>Testing & Registration
     </button>
@@ -191,7 +193,7 @@
           <div class="mt-5">
             <div class="flex justify-between items-center mb-2">
               <h3 class="text-xs font-bold text-slate-400 uppercase">Registered Instruments</h3>
-              <button onclick="loadInstruments()" class="text-[10px] text-blue-400 hover:text-blue-300"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button>
+              <button onclick="loadInstruments(this)" class="text-[10px] text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button>
             </div>
             <div id="instrumentList" class="space-y-1 max-h-40 overflow-y-auto text-xs"></div>
           </div>
@@ -369,7 +371,7 @@
             <h2 class="text-md font-bold text-blue-400 flex items-center"><i class="fa-solid fa-clock-rotate-left mr-2"></i>Report History & Review</h2>
             <p class="text-xs text-slate-400 mt-1">Select a pending report to review and approve or reject.</p>
           </div>
-          <button onclick="loadReports()" class="text-[10px] text-blue-400 hover:text-blue-300"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button>
+          <button onclick="loadReports(this)" class="text-[10px] text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button>
         </div>
 
         <!-- Selected Report Action Toolbar for Approvers -->
@@ -419,7 +421,7 @@
       <section class="bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-md">
         <div class="flex justify-between items-center mb-3">
           <h2 class="text-md font-bold text-blue-400 flex items-center"><i class="fa-solid fa-user-shield mr-2"></i>Manage Users</h2>
-          <button onclick="loadUsers()" class="text-[10px] text-blue-400 hover:text-blue-300"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button>
+          <button onclick="loadUsers(this)" class="text-[10px] text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button>
         </div>
 
         <form id="newUserForm" onsubmit="createUser(event)" class="grid grid-cols-1 sm:grid-cols-5 gap-2 text-xs mb-4 items-end">
@@ -772,17 +774,39 @@
       }
     }
 
-    async function loadInstruments() {
-      const res = await authFetch('/api/instruments');
-      const rows = await res.json();
-      const list = document.getElementById('instrumentList');
-      list.innerHTML = '';
-      rows.forEach(r => {
-        const div = document.createElement('div');
-        div.className = 'flex justify-between items-center bg-slate-900 border border-slate-700 rounded px-2 py-1.5 cursor-pointer hover:border-blue-500';
-        div.innerHTML = `<span>#${r.id} ${r.manufacturer} ${r.model} <span class="text-slate-500">(${r.serial_number})</span></span><span class="text-blue-400">Class ${r.accuracy_class}</span>`;
-        div.onclick = () => selectInstrument(r);
-        list.appendChild(div);
+    // Spins the fa-rotate icon inside a refresh button and disables it
+    // while the given async task runs, regardless of success/failure.
+    // Enforces a minimum visible duration so fast/local/failed requests
+    // still show the spin instead of finishing within a single frame.
+    function withSpin(btn, task, minMs = 400) {
+      if (!btn) return task();
+      const icon = btn.querySelector('i');
+      btn.disabled = true;
+      if (icon) icon.classList.add('fa-spin');
+      const started = Date.now();
+      return Promise.resolve(task()).finally(() => {
+        const elapsed = Date.now() - started;
+        const wait = Math.max(0, minMs - elapsed);
+        setTimeout(() => {
+          btn.disabled = false;
+          if (icon) icon.classList.remove('fa-spin');
+        }, wait);
+      });
+    }
+
+    async function loadInstruments(btn) {
+      return withSpin(btn, async () => {
+        const res = await authFetch('/api/instruments');
+        const rows = await res.json();
+        const list = document.getElementById('instrumentList');
+        list.innerHTML = '';
+        rows.forEach(r => {
+          const div = document.createElement('div');
+          div.className = 'flex justify-between items-center bg-slate-900 border border-slate-700 rounded px-2 py-1.5 cursor-pointer hover:border-blue-500';
+          div.innerHTML = `<span>#${r.id} ${r.manufacturer} ${r.model} <span class="text-slate-500">(${r.serial_number})</span></span><span class="text-blue-400">Class ${r.accuracy_class}</span>`;
+          div.onclick = () => selectInstrument(r);
+          list.appendChild(div);
+        });
       });
     }
 
@@ -959,29 +983,31 @@
 
     // ---- User management (ADMIN only) ----
 
-    async function loadUsers() {
-      try {
-        const res = await authFetch('/api/auth/users');
-        if (!res.ok) return;
-        const rows = await res.json();
-        const tbody = document.getElementById('usersBody');
-        tbody.innerHTML = '';
-        rows.forEach(u => {
-          const tr = document.createElement('tr');
-          tr.innerHTML = `
-            <td class="p-2">#${u.id}</td>
-            <td class="p-2">${u.username}</td>
-            <td class="p-2">${u.full_name}</td>
-            <td class="p-2">${u.role}</td>
-            <td class="p-2">${u.active ? '<span class="text-emerald-400">Active</span>' : '<span class="text-slate-500">Deactivated</span>'}</td>
-            <td class="p-2 text-right">
-              ${u.active && u.id !== currentUser.id
-                ? `<button onclick="deactivateUser(${u.id})" class="text-rose-400 hover:text-rose-300 text-[10px]">Deactivate</button>`
-                : ''}
-            </td>`;
-          tbody.appendChild(tr);
-        });
-      } catch (err) { }
+    async function loadUsers(btn) {
+      return withSpin(btn, async () => {
+        try {
+          const res = await authFetch('/api/auth/users');
+          if (!res.ok) return;
+          const rows = await res.json();
+          const tbody = document.getElementById('usersBody');
+          tbody.innerHTML = '';
+          rows.forEach(u => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+              <td class="p-2">#${u.id}</td>
+              <td class="p-2">${u.username}</td>
+              <td class="p-2">${u.full_name}</td>
+              <td class="p-2">${u.role}</td>
+              <td class="p-2">${u.active ? '<span class="text-emerald-400">Active</span>' : '<span class="text-slate-500">Deactivated</span>'}</td>
+              <td class="p-2 text-right">
+                ${u.active && u.id !== currentUser.id
+                  ? `<button onclick="deactivateUser(${u.id})" class="text-rose-400 hover:text-rose-300 text-[10px]">Deactivate</button>`
+                  : ''}
+              </td>`;
+            tbody.appendChild(tr);
+          });
+        } catch (err) { }
+      });
     }
 
     async function createUser(e) {
@@ -1025,29 +1051,31 @@
       }
     }
 
-    async function loadReports() {
-      const res = await authFetch('/api/reports');
-      const rows = await res.json();
-      const tbody = document.getElementById('reportsBody');
-      tbody.innerHTML = '';
-      rows.forEach(r => {
-        const tr = document.createElement('tr');
-        tr.className = 'cursor-pointer hover:bg-slate-900/50';
-        tr.innerHTML = `
-          <td class="p-2">#${r.id}${r.revision_number > 1 ? ` (rev ${r.revision_number})` : ''}</td>
-          <td class="p-2">${r.manufacturer} ${r.model} <span class="text-slate-500">(${r.serial_number})</span></td>
-          <td class="p-2">${r.technician_name}</td>
-          <td class="p-2"><span class="status-pill status-${r.status}">${r.status}</span></td>
-          <td class="p-2 result-${r.overall_result}">${r.overall_result}</td>
-          <td class="p-2">${r.approved_by || '—'}</td>
-          <td class="p-2">${r.created_at || '—'}</td>
-          <td class="p-2 text-right"><button class="text-blue-400 hover:text-blue-300 text-[10px]">Select</button></td>
-        `;
-        tr.onclick = () => {
-          activeReportId = r.id;
-          document.getElementById('reviewReportLabel').innerText = `#${r.id} (${r.status} - ${r.overall_result})`;
-        };
-        tbody.appendChild(tr);
+    async function loadReports(btn) {
+      return withSpin(btn, async () => {
+        const res = await authFetch('/api/reports');
+        const rows = await res.json();
+        const tbody = document.getElementById('reportsBody');
+        tbody.innerHTML = '';
+        rows.forEach(r => {
+          const tr = document.createElement('tr');
+          tr.className = 'cursor-pointer hover:bg-slate-900/50';
+          tr.innerHTML = `
+            <td class="p-2">#${r.id}${r.revision_number > 1 ? ` (rev ${r.revision_number})` : ''}</td>
+            <td class="p-2">${r.manufacturer} ${r.model} <span class="text-slate-500">(${r.serial_number})</span></td>
+            <td class="p-2">${r.technician_name}</td>
+            <td class="p-2"><span class="status-pill status-${r.status}">${r.status}</span></td>
+            <td class="p-2 result-${r.overall_result}">${r.overall_result}</td>
+            <td class="p-2">${r.approved_by || '—'}</td>
+            <td class="p-2">${r.created_at || '—'}</td>
+            <td class="p-2 text-right"><button class="text-blue-400 hover:text-blue-300 text-[10px]">Select</button></td>
+          `;
+          tr.onclick = () => {
+            activeReportId = r.id;
+            document.getElementById('reviewReportLabel').innerText = `#${r.id} (${r.status} - ${r.overall_result})`;
+          };
+          tbody.appendChild(tr);
+        });
       });
     }
 
