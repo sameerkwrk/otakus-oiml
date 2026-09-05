@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+pydantic
+python-multipart
+bcrypt
+pyjwt
+reportlab
+qrcode
+pillow
+python-docx
+pyhanko
