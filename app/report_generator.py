@@ -2,6 +2,7 @@ import hashlib
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
 from typing import Dict, Any, List, Optional
+import os
 
 import qrcode
 from reportlab.lib.pagesizes import letter
@@ -12,6 +13,10 @@ from reportlab.platypus import (
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 
+# pyHanko imports for PKCS#7 Signatures
+from pyhanko.sign import signers
+from pyhanko.pdf_utils.incremental_writer import IncrementalPdfFileWriter
+from pyhanko.keys import load_cert_from_pemder, load_private_key_from_pemder
 
 def _d(value, places: str = "0.01") -> str:
     """Format a value (which may arrive as Decimal, str, float, or None)
@@ -221,7 +226,7 @@ def generate_pdf_certificate(report_data: Dict[str, Any], observations: List[Dic
     story.append(Spacer(1, 15))
 
     # 5. Environmental conditions present?
-    env_rows = [o for o in observations if str(o['test_type']).startswith("Environmental")]
+    env_rows = [o for o in observations if str(o['test_type']).startswith("Env")]
     if env_rows:
         story.append(Paragraph("3. ENVIRONMENTAL / TILT CONDITIONS RECORDED", section_heading))
         env_headers = ["Condition", "Temp (\u00b0C)", "Tilt (\u00b0)", "Humidity (%)", "Result"]
@@ -229,7 +234,7 @@ def generate_pdf_certificate(report_data: Dict[str, Any], observations: List[Dic
         for o in env_rows:
             status_style = status_style_map.get(o['status'], cell_regular)
             env_table_rows.append([
-                Paragraph(str(o['test_type']).replace("Environmental (", "").rstrip(")"), cell_regular),
+                Paragraph(str(o['test_type']).replace("Env (", "").rstrip(")"), cell_regular),
                 Paragraph(_d(o.get('temperature_c')), cell_regular),
                 Paragraph(_d(o.get('tilt_degrees')), cell_regular),
                 Paragraph(_d(o.get('humidity_pct')), cell_regular),
@@ -330,6 +335,29 @@ def generate_pdf_certificate(report_data: Dict[str, Any], observations: List[Dic
     story.append(KeepTogether(sig_block))
 
     doc.build(story, onFirstPage=draw_watermark, onLaterPages=draw_watermark)
-    pdf_val = buffer.getvalue()
+    pdf_bytes = buffer.getvalue()
     buffer.close()
-    return pdf_val
+
+    # -------------------------------------------------------------
+    # Apply PKCS#7 Digital Signature (if server keys are available)
+    # -------------------------------------------------------------
+    if is_approved and os.path.exists("server_cert.pem") and os.path.exists("server_key.pem"):
+        try:
+            cert = load_cert_from_pemder("server_cert.pem")
+            key = load_private_key_from_pemder("server_key.pem")
+            signer = signers.SimpleSigner(key, cert)
+            
+            in_buf = BytesIO(pdf_bytes)
+            out_buf = BytesIO()
+            writer = IncrementalPdfFileWriter(in_buf)
+            signers.sign_pdf(writer, signers.PdfSignatureMetadata(field_name='Signature1'), signer=signer, out=out_buf)
+            
+            signed_bytes = out_buf.getvalue()
+            in_buf.close()
+            out_buf.close()
+            return signed_bytes
+        except Exception as e:
+            print(f"[NAWI] Warning: Failed to apply digital signature: {e}")
+            return pdf_bytes
+            
+    return pdf_bytes

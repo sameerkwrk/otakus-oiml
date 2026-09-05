@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, Response, Request
+from fastapi import FastAPI, HTTPException, Depends, Response, Request, UploadFile, File
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
@@ -9,6 +9,7 @@ from decimal import Decimal, InvalidOperation
 from typing import List, Generator, Optional, Literal
 import sqlite3
 import os
+import shutil
 from app.mpe_engine import MetrologyEngine, MetrologyValidationError, MPE_RULE_VERSION
 from app.auth import (
     TokenUser,
@@ -21,22 +22,19 @@ from app.auth import (
 )
 
 DATABASE = "nawi_system.db"
+UPLOAD_DIR = "static/uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 app = FastAPI(title="NAWI Metrology Platform")
 
 # =====================================================================
-# CLEAN ERROR HANDLERS (Fixes the "weird ass errors")
+# CLEAN ERROR HANDLERS
 # =====================================================================
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    """
-    Flattens Pydantic's nested 422 validation errors into a single, 
-    clean, human-readable string so the frontend doesn't choke on 
-    [object Object] or messy JSON arrays.
-    """
     messages = []
     for err in exc.errors():
         msg = err.get("msg", "")
-        # Pydantic v2 wraps model_validator ValueErrors as "Value error, <msg>"
         if msg.startswith("Value error, "):
             msg = msg[len("Value error, "):]
         messages.append(msg)
@@ -46,18 +44,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(MetrologyValidationError)
 async def metrology_validation_exception_handler(request: Request, exc: MetrologyValidationError):
-    """
-    Catches any metrological rule violations (e.g., invalid n, e, d, etc.) 
-    and returns a clean 400 Bad Request instead of a 500 Internal Server Error.
-    """
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 # =====================================================================
 # CORS & DB Setup
 # =====================================================================
-# NOTE (spec 9.5): wildcard CORS is convenient for local hackathon/demo use
-# only. Before any real deployment, lock allow_origins down to the actual
-# frontend origin(s) and add real authentication (see README notes).
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -77,10 +68,6 @@ def get_db() -> Generator[sqlite3.Connection, None, None]:
 def init_db():
     with sqlite3.connect(DATABASE) as conn:
         cursor = conn.cursor()
-        # Login accounts. Passwords are never stored in plaintext -- only
-        # a bcrypt hash.  `role`  is the sole source of truth for what an
-        # account is allowed to do server-side (see app/auth.py); the
-        # frontend UI hiding buttons is a convenience, not the boundary.
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,14 +80,6 @@ def init_db():
             )
         """)
         
-        # NOTE: capacity/d/e/n and all observation numeric fields are stored
-        # as TEXT, not REAL. SQLite REAL is IEEE-754 double and silently
-        # loses precision on round-trip (e.g. 0.1 kg does not store exactly).
-        # Storing the exact Decimal string and re-parsing with Decimal() on
-        # read is what actually satisfies spec 9.1 ("avoid ordinary
-        # floating-point arithmetic where exact measurement comparison
-        # matters") -- using Decimal() only inside Python and then dropping
-        # it into a float column would silently undo the benefit.
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS instruments (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -116,6 +95,7 @@ def init_db():
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS test_reports (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,6 +120,7 @@ def init_db():
                 FOREIGN KEY(approver_user_id) REFERENCES users(id)
             )
         """)
+        
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS test_observations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -158,6 +139,18 @@ def init_db():
                 FOREIGN KEY(report_id) REFERENCES test_reports(id)
             )
         """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS report_attachments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                report_id INTEGER NOT NULL,
+                filename TEXT NOT NULL,
+                filepath TEXT NOT NULL,
+                uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(report_id) REFERENCES test_reports(id)
+            )
+        """)
+        
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS audit_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -172,11 +165,6 @@ def init_db():
         conn.commit()
 
 def bootstrap_admin():
-    """If no accounts exist yet, create one ADMIN account so there's a way
-    to log in at all and start creating TESTER/APPROVER accounts. Reads
-    credentials from env vars so a real deployment isn't stuck with a
-    guessable default; falls back to a clearly-flagged dev default and
-    prints a loud warning so it doesn't go unnoticed."""
     with sqlite3.connect(DATABASE) as conn:
         cursor = conn.cursor()
         existing = cursor.execute("SELECT COUNT(*) FROM users").fetchone()[0]
@@ -187,12 +175,6 @@ def bootstrap_admin():
         password = os.environ.get("NAWI_ADMIN_PASSWORD")
         if not password:
             password = "change-me-immediately"
-            print(
-                "\n[NAWI] No users exist yet -- created default admin account  "
-                f"'{username}' / 'change-me-immediately'.\n"
-                "[NAWI] Set NAWI_ADMIN_USERNAME / NAWI_ADMIN_PASSWORD env vars  "
-                "and log in to change this before using the system for real.\n"
-            )
         
         cursor.execute(
             "INSERT INTO users (username, password_hash, full_name, role) VALUES (?, ?, ?, 'ADMIN')",
@@ -250,6 +232,16 @@ class EccentricityPoint(BaseModel):
     reference_load: Decimal = Field(..., ge=0)
     observed_value: Decimal
 
+class TarePoint(BaseModel):
+    tare_load: Decimal = Field(..., ge=0)
+    net_load: Decimal = Field(..., ge=0)
+    observed_value: Decimal
+
+class DiscriminationPoint(BaseModel):
+    reference_load: Decimal = Field(..., ge=0)
+    initial_indication: Decimal
+    final_indication: Decimal
+
 class EnvironmentalPoint(BaseModel):
     condition_label: str = Field(..., min_length=1)
     reference_load: Decimal = Field(..., ge=0)
@@ -260,22 +252,22 @@ class EnvironmentalPoint(BaseModel):
 
 class FullTestSubmission(BaseModel):
     instrument_id: int
-    # technician_name is intentionally NOT a field here -- it's taken
-    # server-side from the authenticated TESTER's account (see
-    # submit_full_test_suite), so a caller can no longer submit a report
-    # "as" someone else just by typing a different name.
+    report_id: Optional[int] = None
     test_location: Optional[str] = None
     reference_equipment: Optional[str] = None
     accuracy_points: List[AccuracyPoint] = []
     eccentricity_points: List[EccentricityPoint] = []
+    tare_points: List[TarePoint] = []
+    discrimination_points: List[DiscriminationPoint] = []
     environmental_points: List[EnvironmentalPoint] = []
     repeatability_load: Optional[Decimal] = None
     repeatability_readings: List[Decimal] = []
 
     @model_validator(mode="after")
     def _at_least_one_test(self):
-        if not (self.accuracy_points or self.eccentricity_points or self.environmental_points or self.repeatability_readings):
-            raise ValueError("At least one observation (accuracy, eccentricity, environmental, or repeatability) is required.")
+        if not (self.accuracy_points or self.eccentricity_points or self.tare_points or 
+                self.discrimination_points or self.environmental_points or self.repeatability_readings):
+            raise ValueError("At least one observation is required.")
         if self.repeatability_readings and self.repeatability_load is None:
             raise ValueError("repeatability_load is required when repeatability_readings are supplied.")
         if self.repeatability_readings and len(self.repeatability_readings) < 2:
@@ -284,8 +276,6 @@ class FullTestSubmission(BaseModel):
 
 class ApprovalRequest(BaseModel):
     report_id: int
-    # approver_name is taken from the authenticated APPROVER's account,
-    # not supplied by the client -- see approve_report.
 
 class RejectionRequest(BaseModel):
     report_id: int
@@ -293,7 +283,6 @@ class RejectionRequest(BaseModel):
 
 class RevisionRequest(BaseModel):
     report_id: int
-    # technician_name is taken from the authenticated TESTER's account.
 
 # =====================================================================
 # Auth
@@ -306,8 +295,6 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: sqlite3.Connection = 
         (form.username,),
     ).fetchone()
     
-    # Same error for "no such user" and "wrong password" so login can't be
-    # used to enumerate valid usernames.
     invalid = HTTPException(status_code=401, detail="Incorrect username or password.")
     if not row or not verify_password(form.password, row["password_hash"]):
         raise invalid
@@ -330,9 +317,6 @@ def register_user(
     db: sqlite3.Connection = Depends(get_db),
     admin: TokenUser = Depends(require_role("ADMIN")),
 ):
-    """Account creation is ADMIN-only and deliberately not self-serve --
-    who gets to be a TESTER vs an APPROVER is a business decision, not
-    something a new signup should get to pick for themselves."""
     cursor = db.cursor()
     try:
         cursor.execute(
@@ -380,7 +364,6 @@ def register_instrument(
     db: sqlite3.Connection = Depends(get_db),
     user: TokenUser = Depends(require_role("TESTER", "ADMIN")),
 ):
-    # The global MetrologyValidationError handler will catch this and return a clean 400 error.
     n = MetrologyEngine.validate_instrument(data.capacity, data.d, data.e, data.accuracy_class)
     
     cursor = db.cursor()
@@ -428,6 +411,8 @@ def submit_full_test_suite(
     user: TokenUser = Depends(require_role("TESTER", "ADMIN")),
 ):
     cursor = db.cursor()
+    
+    # 1. ALWAYS fetch the instrument (needed for math)
     cursor.execute("SELECT * FROM instruments WHERE id = ?", (req.instrument_id,))
     inst = cursor.fetchone()
     if not inst:
@@ -435,20 +420,27 @@ def submit_full_test_suite(
     
     e_val = Decimal(inst["e"])
     acc_class = inst["accuracy_class"]
+    d_val = Decimal(inst["d"])
     
-    cursor.execute(
-        """INSERT INTO test_reports
-           (instrument_id, technician_name, technician_user_id, test_location, reference_equipment,
-            status, overall_result, rule_version)
-           VALUES (?, ?, ?, ?, ?, 'DRAFT', 'PENDING', ?)""",
-        (req.instrument_id, user.full_name, user.id, req.test_location, req.reference_equipment, MPE_RULE_VERSION),
-    )
-    report_id = cursor.lastrowid
-    
+    # 2. Determine report ID (Revision vs New)
+    if req.report_id:
+        cursor.execute("SELECT * FROM test_reports WHERE id = ? AND status = 'DRAFT'", (req.report_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=400, detail="Draft report not found.")
+        report_id = req.report_id
+    else:
+        cursor.execute(
+            """INSERT INTO test_reports
+               (instrument_id, technician_name, technician_user_id, test_location, reference_equipment,
+                status, overall_result, rule_version)
+               VALUES (?, ?, ?, ?, ?, 'DRAFT', 'PENDING', ?)""",
+            (req.instrument_id, user.full_name, user.id, req.test_location, req.reference_equipment, MPE_RULE_VERSION),
+        )
+        report_id = cursor.lastrowid
+        
     all_observations = []
     overall_pass = True
     
-    # 1. Accuracy / linearity points (increasing & decreasing loads, order preserved)
     for pt in req.accuracy_points:
         res = MetrologyEngine.evaluate_observation(pt.reference_load, pt.observed_value, e_val, acc_class)
         res.update({"test_type": "Accuracy Test", "position": "Centre", "direction": pt.direction})
@@ -456,19 +448,38 @@ def submit_full_test_suite(
             overall_pass = False
         all_observations.append(res)
         
-    # 2. Eccentricity points
     for pt in req.eccentricity_points:
         res = MetrologyEngine.evaluate_observation(pt.reference_load, pt.observed_value, e_val, acc_class)
         res.update({"test_type": "Eccentricity Test", "position": pt.position})
         if res["status"] == "FAIL":
             overall_pass = False
         all_observations.append(res)
+
+    for pt in req.tare_points:
+        res = MetrologyEngine.evaluate_observation(pt.net_load, pt.observed_value, e_val, acc_class)
+        res.update({"test_type": f"Tare (T={pt.tare_load})", "position": "Centre"})
+        if res["status"] == "FAIL":
+            overall_pass = False
+        all_observations.append(res)
         
-    # 3. Environmental / tilt points
+    for pt in req.discrimination_points:
+        res = MetrologyEngine.evaluate_discrimination(pt.reference_load, d_val, pt.initial_indication, pt.final_indication)
+        if res["status"] == "FAIL": 
+            overall_pass = False
+        all_observations.append({
+            "test_type": "Discrimination (+1.4d)",
+            "position": "Centre",
+            "reference_load": pt.reference_load,
+            "observed_value": pt.final_indication,
+            "calculated_error": res["calculated_change"],
+            "mpe": d_val,
+            "status": res["status"]
+        })
+        
     for pt in req.environmental_points:
         res = MetrologyEngine.evaluate_observation(pt.reference_load, pt.observed_value, e_val, acc_class)
         res.update({
-            "test_type": f"Environmental ({pt.condition_label})",
+            "test_type": f"Env ({pt.condition_label})",
             "position": "Centre",
             "temperature_c": pt.temperature_c,
             "tilt_degrees": pt.tilt_degrees,
@@ -478,9 +489,6 @@ def submit_full_test_suite(
             overall_pass = False
         all_observations.append(res)
         
-    # 4. Repeatability: report readings for traceability, but pass/fail is
-    # determined ONLY by spread (max-min) against the load-appropriate MPE,
-    # never by comparing an individual reading to the reference (spec 5.2).
     rep_res = None
     if req.repeatability_readings:
         rep_res = MetrologyEngine.evaluate_repeatability(
@@ -496,9 +504,6 @@ def submit_full_test_suite(
                 "observed_value": reading,
                 "calculated_error": reading - req.repeatability_load,
                 "mpe": rep_res["allowed_mpe"],
-                # Individual repeatability runs are informational only --
-                # the PASS/FAIL verdict for repeatability lives on the
-                # summary (spread) row below, not on each run.
                 "status": "RECORDED",
             })
         all_observations.append({
@@ -600,10 +605,6 @@ def approve_report(
     if report["status"] == "APPROVED":
         raise HTTPException(status_code=400, detail="Report is already approved.")
         
-    # Identity-based check (by account id), not a case-insensitive string
-    # match on a free-text name -- closes the gap where two different
-    # people typing the same display name could approve each other's
-    # work, or a technician could approve their own by mistyping.
     if report["technician_user_id"] is not None and report["technician_user_id"] == user.id:
         raise HTTPException(status_code=400, detail="You cannot approve your own report.")
         
@@ -647,10 +648,6 @@ def revise_report(
     db: sqlite3.Connection = Depends(get_db),
     user: TokenUser = Depends(require_role("TESTER", "ADMIN")),
 ):
-    """Approved (and rejected) reports are read-only. A correction never
-    overwrites the original -- it creates a new DRAFT report chained via
-    parent_report_id/revision_number, so the original observations remain
-    permanently in the audit trail (spec 8 / 9.3)."""
     cursor = db.cursor()
     cursor.execute("SELECT * FROM test_reports WHERE id = ?", (req.report_id,))
     original = cursor.fetchone()
@@ -677,6 +674,39 @@ def revise_report(
     return {"message": f"Revision created as report #{new_report_id}. Submit new observations against it.",
             "report_id": new_report_id, "parent_report_id": original["id"]}
 
+# =====================================================================
+# Attachments & Exports
+# =====================================================================
+@app.post("/api/reports/{report_id}/attachments")
+async def upload_attachment(
+    report_id: int, 
+    file: UploadFile = File(...), 
+    db: sqlite3.Connection = Depends(get_db), 
+    user: TokenUser = Depends(require_role())
+):
+    cursor = db.cursor()
+    cursor.execute("SELECT id FROM test_reports WHERE id = ?", (report_id,))
+    if not cursor.fetchone():
+        raise HTTPException(status_code=404, detail="Report not found.")
+    
+    filepath = os.path.join(UPLOAD_DIR, f"{report_id}_{file.filename}")
+    with open(filepath, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    cursor.execute(
+        "INSERT INTO report_attachments (report_id, filename, filepath) VALUES (?, ?, ?)", 
+        (report_id, file.filename, filepath)
+    )
+    db.commit()
+    return {"message": "Attachment uploaded successfully", "filename": file.filename}
+
+@app.get("/api/reports/{report_id}/attachments")
+def list_attachments(report_id: int, db: sqlite3.Connection = Depends(get_db), user: TokenUser = Depends(require_role())):
+    cursor = db.cursor()
+    cursor.execute("SELECT id, filename, uploaded_at FROM report_attachments WHERE report_id = ?", (report_id,))
+    return [dict(r) for r in cursor.fetchall()]
+
+
 @app.get("/api/reports/{report_id}/pdf")
 def download_pdf(
     report_id: int,
@@ -701,9 +731,32 @@ def download_pdf(
     
     pdf_bytes = generate_pdf_certificate(dict(report), [dict(o) for o in obs_rows])
     
-    # report_id is a path-typed int, so no filename sanitization gap here.
     return Response(content=pdf_bytes, media_type="application/pdf", headers={
         "Content-Disposition": f"attachment; filename=Verification_Certificate_{report_id}.pdf"
+    })
+
+@app.get("/api/reports/{report_id}/docx")
+def download_docx(
+    report_id: int,
+    db: sqlite3.Connection = Depends(get_db),
+    user: TokenUser = Depends(require_role()),
+):
+    from app.docx_generator import generate_docx_certificate
+    
+    cursor = db.cursor()
+    cursor.execute("""
+        SELECT r.*, i.manufacturer, i.model, i.serial_number, i.capacity, i.unit, i.d, i.e, i.accuracy_class, i.n
+        FROM test_reports r JOIN instruments i ON r.instrument_id = i.id WHERE r.id = ?
+    """, (report_id,))
+    report = cursor.fetchone()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found.")
+        
+    cursor.execute("SELECT * FROM test_observations WHERE report_id = ? ORDER BY id", (report_id,))
+    docx_bytes = generate_docx_certificate(dict(report), [dict(o) for o in cursor.fetchall()])
+    
+    return Response(content=docx_bytes, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={
+        "Content-Disposition": f"attachment; filename=Verification_Certificate_{report_id}.docx"
     })
 
 if os.path.exists("static"):

@@ -172,9 +172,7 @@ class MetrologyEngine:
         """Repeatability concerns variation *among* repeated readings, not
         closeness of any single reading to the reference (spec 5.2).
         The tolerance for max-min spread is the MPE applicable at the
-        tested load -- NOT a flat 1e, since a flat 1e is only correct in
-        the lowest error zone and silently over-tightens tolerance for
-        instruments tested at higher loads.
+        tested load -- NOT a flat 1e.
         """
         if not observations or len(observations) < 2:
             raise MetrologyValidationError("At least 2 observations required for repeatability calculation.")
@@ -191,5 +189,23 @@ class MetrologyEngine:
             "max": max_val,
             "difference": diff,
             "allowed_mpe": allowed_mpe,
+            "status": "PASS" if passed else "FAIL",
+        }
+        
+    @classmethod
+    def evaluate_discrimination(
+        cls,
+        reference_load: Decimal,
+        d: Decimal,
+        initial_indication: Decimal,
+        final_indication: Decimal,
+    ) -> Dict[str, Any]:
+        """OIML R-76 3.8.2.2: An additional load of 1.4d placed gently on the 
+        instrument at equilibrium shall change the indication by >= 1d."""
+        change = final_indication - initial_indication
+        passed = change >= d
+        
+        return {
+            "calculated_change": change,
             "status": "PASS" if passed else "FAIL",
         }

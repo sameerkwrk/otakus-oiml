@@ -31,8 +31,8 @@
     #mbOverlay.mb-open { opacity: 1; pointer-events: auto; }
     .mb-box {
       width: 100%; max-width: 22rem;
-      background: #1e293b; /* slate-800 */
-      border: 1px solid #334155; /* slate-700 */
+      background: #1e293b;
+      border: 1px solid #334155; 
       border-radius: 0.75rem;
       box-shadow: 0 20px 25px -5px rgba(0,0,0,.5), 0 8px 10px -6px rgba(0,0,0,.4);
       transform: scale(.95) translateY(6px);
@@ -52,6 +52,27 @@
     .mb-btn { transition: background-color .12s ease, transform .08s ease; }
     .mb-btn:active { transform: scale(.97); }
     #mbInput:focus { border-color: #3b82f6; }
+
+    /* ---- Sleek Custom Scrollbars ---- */
+    ::-webkit-scrollbar {
+      height: 6px;
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155; 
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569; 
+    }
+    * {
+      scrollbar-width: thin;
+      scrollbar-color: #334155 #0f172a;
+    }
   </style>
 </head>
 <body class="bg-slate-900 text-slate-100 min-h-screen font-sans flex flex-col">
@@ -124,11 +145,12 @@
 
     <!-- PAGE 1: Testing & Registration (Tester only) -->
     <div id="page-testing" class="page-section hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
       <!-- Step 1: Instrument Registration & Selection -->
       <section class="lg:col-span-4 bg-slate-800 rounded-xl border border-slate-700 p-5 flex flex-col justify-between shadow-md">
         <div>
-          <h2 class="text-md font-bold text-blue-400 border-b border-slate-700 pb-3 mb-4 flex items-center">
-            <i class="fa-solid fa-sliders mr-2"></i> 1. Instrument Specifications
+          <h2 class="text-md font-bold text-blue-400 border-b border-slate-700 pb-3 mb-4">
+            1. Instrument Specifications
           </h2>
 
           <form id="instForm" onsubmit="registerInstrument(event)" class="space-y-3 text-xs">
@@ -218,15 +240,18 @@
             </div>
           </div>
 
-          <div class="flex border-b border-slate-700 space-x-6 text-sm mb-4 overflow-x-auto">
+          <div class="flex border-b border-slate-700 space-x-6 text-sm mb-4 overflow-x-auto pb-1">
             <button onclick="switchTab('accuracy')" id="tab-accuracy" class="pb-2 tab-active focus:outline-none whitespace-nowrap">Accuracy Points</button>
             <button onclick="switchTab('eccentricity')" id="tab-eccentricity" class="pb-2 text-slate-400 focus:outline-none whitespace-nowrap">Eccentricity Test</button>
+            <button onclick="switchTab('tare')" id="tab-tare" class="pb-2 text-slate-400 focus:outline-none whitespace-nowrap">Tare Test</button>
+            <button onclick="switchTab('discrimination')" id="tab-discrimination" class="pb-2 text-slate-400 focus:outline-none whitespace-nowrap">Discrimination</button>
             <button onclick="switchTab('environmental')" id="tab-environmental" class="pb-2 text-slate-400 focus:outline-none whitespace-nowrap">Environmental / Tilt</button>
-            <button onclick="switchTab('repeatability')" id="tab-repeatability" class="pb-2 text-slate-400 focus:outline-none whitespace-nowrap">Repeatability Test</button>
+            <button onclick="switchTab('repeatability')" id="tab-repeatability" class="pb-2 text-slate-400 focus:outline-none whitespace-nowrap">Repeatability</button>
           </div>
 
           <!-- Dynamic Inputs based on active tab -->
           <div id="tabContent" class="bg-slate-900 p-4 rounded-lg border border-slate-700 mb-4">
+            
             <!-- Accuracy View -->
             <div id="view-accuracy" class="grid grid-cols-4 gap-3 items-end">
               <div>
@@ -272,6 +297,44 @@
                   <i class="fa-solid fa-plus mr-1"></i> Add Position
                 </button>
               </div>
+            </div>
+
+            <!-- Tare View -->
+            <div id="view-tare" class="hidden grid grid-cols-4 gap-3 items-end">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Tare Load</label>
+                  <input type="text" id="tare_tload" value="2.00" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Net Load</label>
+                  <input type="text" id="tare_nload" value="10.00" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Observed Value</label>
+                  <input type="text" id="tare_obs" value="10.01" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <button onclick="addTarePoint()" class="bg-blue-600 hover:bg-blue-500 text-xs py-2 px-3 rounded font-semibold">
+                  <i class="fa-solid fa-plus mr-1"></i> Add Tare Point
+                </button>
+            </div>
+
+            <!-- Discrimination View -->
+            <div id="view-discrimination" class="hidden grid grid-cols-4 gap-3 items-end">
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Base Load</label>
+                  <input type="text" id="disc_ref" value="10.00" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Initial Indication</label>
+                  <input type="text" id="disc_init" value="10.00" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-400 mb-1">Final (+1.4d load)</label>
+                  <input type="text" id="disc_final" value="10.02" class="w-full bg-slate-800 border border-slate-700 rounded px-3 py-1.5 text-xs focus:outline-none">
+                </div>
+                <button onclick="addDiscriminationPoint()" class="bg-blue-600 hover:bg-blue-500 text-xs py-2 px-3 rounded font-semibold">
+                  <i class="fa-solid fa-plus mr-1"></i> Add Check
+                </button>
             </div>
 
             <!-- Environmental / Tilt View -->
@@ -365,6 +428,27 @@
 
     <!-- PAGE 2: Report History & Approvals (Approver & Admin) -->
     <div id="page-reports" class="page-section hidden space-y-6">
+      
+      <!-- Metrics Dashboard -->
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div class="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-md">
+          <div class="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">Total Reports</div>
+          <div id="metric-total" class="text-2xl font-bold text-slate-100">0</div>
+        </div>
+        <div class="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-md">
+          <div class="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">Pending Approval</div>
+          <div id="metric-pending" class="text-2xl font-bold text-amber-400">0</div>
+        </div>
+        <div class="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-md">
+          <div class="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">Approved</div>
+          <div id="metric-approved" class="text-2xl font-bold text-emerald-400">0</div>
+        </div>
+        <div class="bg-slate-800 border border-slate-700 p-4 rounded-xl shadow-md">
+          <div class="text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-1">Rejected</div>
+          <div id="metric-rejected" class="text-2xl font-bold text-rose-400">0</div>
+        </div>
+      </div>
+
       <section class="bg-slate-800 rounded-xl border border-slate-700 p-5 shadow-md">
         <div class="flex justify-between items-center mb-3">
           <div>
@@ -374,7 +458,7 @@
           <button onclick="loadReports(this)" class="text-[10px] text-blue-400 hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"><i class="fa-solid fa-rotate mr-1"></i>Refresh</button>
         </div>
 
-        <!-- Selected Report Action Toolbar for Approvers -->
+        <!-- Selected Report Action Toolbar -->
         <div class="bg-slate-900/80 border border-slate-700 rounded-lg p-3 mb-4 flex flex-wrap items-center justify-between gap-3">
           <div class="text-xs">
             <span class="text-slate-400">Active Review Report: </span>
@@ -390,10 +474,34 @@
             <button onclick="downloadPdf()" class="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded text-xs font-semibold">
               <i class="fa-solid fa-file-pdf mr-1"></i> Certificate PDF
             </button>
+            <button onclick="downloadDocx()" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold">
+              <i class="fa-solid fa-file-word mr-1"></i> Certificate Word
+            </button>
             <button onclick="reviseReport()" class="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 text-white rounded text-xs font-semibold">
               Create Revision
             </button>
           </div>
+        </div>
+
+        <!-- Attachments UI -->
+        <div id="attachmentsPanel" class="bg-slate-900/50 border border-slate-700 rounded-lg p-4 mb-4 hidden">
+          <h3 class="text-xs font-bold text-slate-400 mb-3 border-b border-slate-700 pb-2">Supporting Documents & Photos</h3>
+          <div class="flex items-center gap-4">
+            <input type="file" id="attachmentInput" class="text-xs text-slate-300 block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+            <button onclick="uploadAttachment()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded text-xs font-semibold shadow">Upload</button>
+          </div>
+          <ul id="attachmentList" class="mt-4 text-xs text-blue-400 space-y-2"></ul>
+        </div>
+
+        <!-- Search and Retrieval Facility -->
+        <div class="flex flex-wrap gap-3 mb-4">
+          <input type="text" id="searchInput" onkeyup="filterReports()" placeholder="Search by serial number, model, or technician..." class="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-xs focus:outline-none focus:border-blue-500">
+          <select id="statusFilter" onchange="filterReports()" class="bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-xs focus:outline-none focus:border-blue-500">
+            <option value="ALL">All Statuses</option>
+            <option value="DRAFT">Pending Approval (Draft)</option>
+            <option value="APPROVED">Approved</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
         </div>
 
         <div class="overflow-x-auto rounded border border-slate-700">
@@ -470,7 +578,7 @@
     </div>
   </main>
 
-  <!-- Custom Message Box (replaces alert/confirm/prompt) -->
+  <!-- Custom Message Box -->
   <div id="mbOverlay">
     <div class="mb-box p-5" role="dialog" aria-modal="true">
       <div class="flex items-start space-x-3">
@@ -488,15 +596,17 @@
   <script>
     let activeInstrumentId = null;
     let activeReportId = null;
+    let activeRevisionId = null;
     let selectedPosition = 'Centre';
 
     let accuracyPoints = [];
     let eccentricityPoints = [];
+    let tarePoints = [];
+    let discriminationPoints = [];
     let environmentalPoints = [];
     let repeatabilityReadings = [];
 
     // ================= Custom Message Box Engine =================
-    // Replaces native alert() / confirm() / prompt() with a themed dialog.
     const ICONS = {
       info:    { glyph: 'fa-circle-info',        cls: 'mb-icon-info'    },
       success: { glyph: 'fa-circle-check',       cls: 'mb-icon-success' },
@@ -568,7 +678,6 @@
       });
     }
 
-    // Queue dialogs so rapid-fire calls (e.g. multiple alerts) don't overlap.
     function mbEnqueue(task) {
       const run = () => task();
       mbQueue = mbQueue.then(run, run);
@@ -605,8 +714,6 @@
       }));
     }
 
-    // Fire-and-forget override: alert() callers do `return alert(...)` for early
-    // exit and don't depend on blocking, so this is a drop-in replacement.
     window.alert = function (message) {
       const msg = String(message);
       const isError = /fail|error|reach server/i.test(msg);
@@ -615,7 +722,7 @@
     };
     // ================================================================
 
-    let currentUser = null; // { id, username, full_name, role }
+    let currentUser = null; 
 
     function authHeaders(extra = {}) {
       const token = localStorage.getItem('nawi_token');
@@ -657,7 +764,6 @@
       document.getElementById('currentUserLabel').innerText = currentUser.full_name;
       document.getElementById('currentRoleLabel').innerText = currentUser.role;
 
-      // Route to default page according to role permissions
       if (currentUser.role === 'APPROVER') {
         showPage('reports');
       } else if (currentUser.role === 'ADMIN') {
@@ -720,7 +826,7 @@
     }
 
     function switchTab(tab) {
-      ['accuracy', 'eccentricity', 'environmental', 'repeatability'].forEach(t => {
+      ['accuracy', 'eccentricity', 'tare', 'discrimination', 'environmental', 'repeatability'].forEach(t => {
         document.getElementById(`tab-${t}`).className = t === tab ? 'pb-2 tab-active focus:outline-none whitespace-nowrap' : 'pb-2 text-slate-400 focus:outline-none whitespace-nowrap';
         document.getElementById(`view-${t}`).classList.toggle('hidden', t !== tab);
       });
@@ -740,7 +846,6 @@
     }
 
     // ---- Instruments ----
-
     async function registerInstrument(e) {
       e.preventDefault();
       const payload = {
@@ -774,10 +879,6 @@
       }
     }
 
-    // Spins the fa-rotate icon inside a refresh button and disables it
-    // while the given async task runs, regardless of success/failure.
-    // Enforces a minimum visible duration so fast/local/failed requests
-    // still show the spin instead of finishing within a single frame.
     function withSpin(btn, task, minMs = 400) {
       if (!btn) return task();
       const icon = btn.querySelector('i');
@@ -802,21 +903,31 @@
         list.innerHTML = '';
         rows.forEach(r => {
           const div = document.createElement('div');
-          div.className = 'flex justify-between items-center bg-slate-900 border border-slate-700 rounded px-2 py-1.5 cursor-pointer hover:border-blue-500';
+          const isActive = activeInstrumentId === r.id;
+          
+          div.className = `flex justify-between items-center rounded px-2 py-1.5 cursor-pointer transition-colors border ${isActive ? 'border-blue-500 bg-slate-800' : 'border-slate-700 bg-slate-900 hover:border-blue-500'}`;
           div.innerHTML = `<span>#${r.id} ${r.manufacturer} ${r.model} <span class="text-slate-500">(${r.serial_number})</span></span><span class="text-blue-400">Class ${r.accuracy_class}</span>`;
-          div.onclick = () => selectInstrument(r);
+          
+          div.onclick = (e) => selectInstrument(r, e.currentTarget);
           list.appendChild(div);
         });
       });
     }
 
-    function selectInstrument(r) {
+    function selectInstrument(r, el) {
       activeInstrumentId = r.id;
       document.getElementById('activeInstLabel').innerText = `#${r.id} — ${r.manufacturer} ${r.model} (${r.serial_number})`;
+      
+      document.querySelectorAll('#instrumentList > div').forEach(div => {
+        div.className = 'flex justify-between items-center rounded px-2 py-1.5 cursor-pointer transition-colors border border-slate-700 bg-slate-900 hover:border-blue-500';
+      });
+      
+      if (el) {
+        el.className = 'flex justify-between items-center rounded px-2 py-1.5 cursor-pointer transition-colors border border-blue-500 bg-slate-800';
+      }
     }
 
     // ---- Staged observations ----
-
     function addAccuracyPoint() {
       accuracyPoints.push({
         reference_load: document.getElementById('acc_ref').value.trim(),
@@ -831,6 +942,24 @@
         position: selectedPosition,
         reference_load: document.getElementById('ecc_ref').value.trim(),
         observed_value: document.getElementById('ecc_obs').value.trim()
+      });
+      renderPreview();
+    }
+
+    function addTarePoint() {
+      tarePoints.push({
+        tare_load: document.getElementById('tare_tload').value.trim(),
+        net_load: document.getElementById('tare_nload').value.trim(),
+        observed_value: document.getElementById('tare_obs').value.trim()
+      });
+      renderPreview();
+    }
+
+    function addDiscriminationPoint() {
+      discriminationPoints.push({
+        reference_load: document.getElementById('disc_ref').value.trim(),
+        initial_indication: document.getElementById('disc_init').value.trim(),
+        final_indication: document.getElementById('disc_final').value.trim()
       });
       renderPreview();
     }
@@ -861,6 +990,8 @@
     function removeStaged(kind, idx) {
       if (kind === 'accuracy') accuracyPoints.splice(idx, 1);
       if (kind === 'eccentricity') eccentricityPoints.splice(idx, 1);
+      if (kind === 'tare') tarePoints.splice(idx, 1);
+      if (kind === 'discrimination') discriminationPoints.splice(idx, 1);
       if (kind === 'environmental') environmentalPoints.splice(idx, 1);
       if (kind === 'repeatability') repeatabilityReadings.splice(idx, 1);
       renderPreview();
@@ -876,20 +1007,24 @@
 
       accuracyPoints.forEach((p, i) => tbody.innerHTML += row('Accuracy', `Centre (${p.direction})`, p.reference_load, p.observed_value, 'accuracy', i));
       eccentricityPoints.forEach((p, i) => tbody.innerHTML += row('Eccentricity', p.position, p.reference_load, p.observed_value, 'eccentricity', i));
+      tarePoints.forEach((p, i) => tbody.innerHTML += row('Tare', `T: ${p.tare_load}`, p.net_load, p.observed_value, 'tare', i));
+      discriminationPoints.forEach((p, i) => tbody.innerHTML += row('Discrimination', 'Centre (+1.4d)', p.reference_load, p.final_indication, 'discrimination', i));
       environmentalPoints.forEach((p, i) => tbody.innerHTML += row('Environmental', p.condition_label, p.reference_load, p.observed_value, 'environmental', i));
       repeatabilityReadings.forEach((r, i) => tbody.innerHTML += row('Repeatability', 'Centre', repeatabilityLoad, r, 'repeatability', i));
     }
 
     // ---- Report lifecycle ----
-
     async function submitSuite() {
       if (!activeInstrumentId) return alert('Select or register an instrument first!');
       const payload = {
         instrument_id: activeInstrumentId,
+        report_id: activeRevisionId,
         test_location: document.getElementById('test_location').value.trim() || null,
         reference_equipment: document.getElementById('ref_equipment').value.trim() || null,
         accuracy_points: accuracyPoints,
         eccentricity_points: eccentricityPoints,
+        tare_points: tarePoints,
+        discrimination_points: discriminationPoints,
         environmental_points: environmentalPoints,
         repeatability_readings: repeatabilityReadings
       };
@@ -903,9 +1038,10 @@
       const data = await res.json();
       if (res.ok) {
         activeReportId = data.report_id;
+        activeRevisionId = null; 
         setStatusPill(`DRAFT #${data.report_id} — ${data.overall_result}`, 'DRAFT');
         alert(`Suite submitted! Report #${data.report_id}. Result: ${data.overall_result}`);
-        accuracyPoints = []; eccentricityPoints = []; environmentalPoints = []; repeatabilityReadings = [];
+        accuracyPoints = []; eccentricityPoints = []; tarePoints = []; discriminationPoints = []; environmentalPoints = []; repeatabilityReadings = [];
         renderPreview();
       } else {
         alert(data.detail ? JSON.stringify(data.detail) : 'Submission failed');
@@ -959,9 +1095,9 @@
       });
       const data = await res.json();
       if (res.ok) {
-        activeReportId = data.report_id;
-        setStatusPill(`DRAFT #${data.report_id} (revision)`, 'DRAFT');
-        alert(data.message);
+        activeRevisionId = data.report_id;
+        alert(data.message + " You will now be taken to the testing tab to enter corrections.");
+        showPage('testing'); 
       } else {
         alert(`Revision failed: ${data.detail}`);
       }
@@ -981,8 +1117,140 @@
       }
     }
 
-    // ---- User management (ADMIN only) ----
+    async function downloadDocx() {
+      if (!activeReportId) return alert('No report selected for Word export!');
+      try {
+        const res = await authFetch(`/api/reports/${activeReportId}/docx`);
+        if (!res.ok) { 
+          const data = await res.json().catch(() => ({})); 
+          throw new Error(data.detail || 'Word download failed'); 
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Verification_Certificate_${activeReportId}.docx`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      } catch (err) {
+        alert(err.message);
+      }
+    }
 
+    async function loadAttachments() {
+      if (!activeReportId) return;
+      const res = await authFetch(`/api/reports/${activeReportId}/attachments`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const list = document.getElementById('attachmentList');
+      list.innerHTML = '';
+      data.forEach(att => {
+        list.innerHTML += `<li><i class="fa-solid fa-file mr-2 text-slate-500"></i>${att.filename}</li>`;
+      });
+    }
+
+    async function uploadAttachment() {
+      if (!activeReportId) return alert("Select a report from the table first.");
+      const fileInput = document.getElementById('attachmentInput');
+      if (!fileInput.files.length) return alert("Please select a file to upload.");
+      
+      const formData = new FormData();
+      formData.append("file", fileInput.files[0]);
+      
+      try {
+        const res = await authFetch(`/api/reports/${activeReportId}/attachments`, {
+          method: 'POST',
+          body: formData
+        });
+        if (res.ok) {
+          alert("File uploaded successfully.");
+          fileInput.value = "";
+          loadAttachments();
+        } else {
+          alert("Upload failed.");
+        }
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    // ---- Reports Data & Dashboard Filter ----
+    let globalReportsData = []; 
+
+    async function loadReports(btn) {
+      return withSpin(btn, async () => {
+        const res = await authFetch('/api/reports');
+        if (!res.ok) return;
+        globalReportsData = await res.json();
+        
+        // Update Dashboard Metrics
+        document.getElementById('metric-total').innerText = globalReportsData.length;
+        document.getElementById('metric-pending').innerText = globalReportsData.filter(r => r.status === 'DRAFT').length;
+        document.getElementById('metric-approved').innerText = globalReportsData.filter(r => r.status === 'APPROVED').length;
+        document.getElementById('metric-rejected').innerText = globalReportsData.filter(r => r.status === 'REJECTED').length;
+        
+        filterReports(); 
+      });
+    }
+
+    function filterReports() {
+      const query = document.getElementById('searchInput').value.toLowerCase();
+      const status = document.getElementById('statusFilter').value;
+      
+      const filtered = globalReportsData.filter(r => {
+        const matchStatus = status === 'ALL' || r.status === status;
+        const searchStr = `${r.serial_number} ${r.model} ${r.manufacturer} ${r.technician_name} #${r.id}`.toLowerCase();
+        const matchQuery = searchStr.includes(query);
+        return matchStatus && matchQuery;
+      });
+      
+      renderReportsTable(filtered);
+    }
+
+    function renderReportsTable(rows) {
+      const tbody = document.getElementById('reportsBody');
+      tbody.innerHTML = '';
+      rows.forEach(r => {
+        const tr = document.createElement('tr');
+        const isActive = activeReportId === r.id;
+        
+        tr.className = `cursor-pointer transition-colors ${isActive ? 'bg-slate-800 outline outline-1 outline-blue-500' : 'hover:bg-slate-900/50'}`;
+        tr.innerHTML = `
+          <td class="p-2">#${r.id}${r.revision_number > 1 ? ` (rev ${r.revision_number})` : ''}</td>
+          <td class="p-2">${r.manufacturer} ${r.model} <span class="text-slate-500">(${r.serial_number})</span></td>
+          <td class="p-2">${r.technician_name}</td>
+          <td class="p-2"><span class="status-pill status-${r.status}">${r.status}</span></td>
+          <td class="p-2 result-${r.overall_result}">${r.overall_result}</td>
+          <td class="p-2">${r.approved_by || '—'}</td>
+          <td class="p-2">${r.created_at || '—'}</td>
+          <td class="p-2 text-right font-semibold"><button class="text-blue-400 hover:text-blue-300 text-[10px]">${isActive ? 'Selected' : 'Select'}</button></td>
+        `;
+        tr.onclick = (e) => selectReport(r, e.currentTarget);
+        tbody.appendChild(tr);
+      });
+    }
+
+    function selectReport(r, el) {
+      activeReportId = r.id;
+      document.getElementById('reviewReportLabel').innerText = `#${r.id} (${r.status} - ${r.overall_result})`;
+      document.getElementById('attachmentsPanel').classList.remove('hidden');
+      loadAttachments();
+
+      document.querySelectorAll('#reportsBody > tr').forEach(tr => {
+        tr.className = 'cursor-pointer transition-colors hover:bg-slate-900/50';
+        tr.querySelector('button').innerText = 'Select';
+      });
+      
+      if (el) {
+        el.className = 'cursor-pointer transition-colors bg-slate-800 outline outline-1 outline-blue-500';
+        el.querySelector('button').innerText = 'Selected';
+      }
+    }
+
+
+    // ---- User management (ADMIN only) ----
     async function loadUsers(btn) {
       return withSpin(btn, async () => {
         try {
@@ -1049,34 +1317,6 @@
       } catch (err) {
         alert(err.message);
       }
-    }
-
-    async function loadReports(btn) {
-      return withSpin(btn, async () => {
-        const res = await authFetch('/api/reports');
-        const rows = await res.json();
-        const tbody = document.getElementById('reportsBody');
-        tbody.innerHTML = '';
-        rows.forEach(r => {
-          const tr = document.createElement('tr');
-          tr.className = 'cursor-pointer hover:bg-slate-900/50';
-          tr.innerHTML = `
-            <td class="p-2">#${r.id}${r.revision_number > 1 ? ` (rev ${r.revision_number})` : ''}</td>
-            <td class="p-2">${r.manufacturer} ${r.model} <span class="text-slate-500">(${r.serial_number})</span></td>
-            <td class="p-2">${r.technician_name}</td>
-            <td class="p-2"><span class="status-pill status-${r.status}">${r.status}</span></td>
-            <td class="p-2 result-${r.overall_result}">${r.overall_result}</td>
-            <td class="p-2">${r.approved_by || '—'}</td>
-            <td class="p-2">${r.created_at || '—'}</td>
-            <td class="p-2 text-right"><button class="text-blue-400 hover:text-blue-300 text-[10px]">Select</button></td>
-          `;
-          tr.onclick = () => {
-            activeReportId = r.id;
-            document.getElementById('reviewReportLabel').innerText = `#${r.id} (${r.status} - ${r.overall_result})`;
-          };
-          tbody.appendChild(tr);
-        });
-      });
     }
 
     initSession();
